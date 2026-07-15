@@ -21,7 +21,8 @@ class FakeAdapter:
 
     def probe(self):
         level = DiagnosticLevel.PASS if self.available else DiagnosticLevel.FAIL
-        return DiagnosticResult(self.name, level, f"{self.name} probe")
+        hint = None if self.available else "WSL용 Codex를 설치하세요."
+        return DiagnosticResult(self.name, level, f"{self.name} probe", hint)
 
     def build_launch(self, context):
         return LaunchSpec(self.name, (context.prompt.text,), {})
@@ -161,4 +162,5 @@ def test_doctor_reports_missing_adapter_without_traceback(tmp_path: Path) -> Non
     assert code == 1
     assert "FAIL" in stdout
     assert "codex" in stdout
+    assert "WSL용 Codex를 설치하세요." in stdout
     assert "Traceback" not in stderr

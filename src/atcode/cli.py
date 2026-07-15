@@ -60,6 +60,8 @@ def run(
             results = container.diagnostics.run(project)
             for result in results:
                 print(f"{result.level.value:<4}  {result.name}: {result.message}", file=stdout)
+                if result.hint:
+                    print(f"      Hint: {result.hint}", file=stdout)
             return 1 if any(result.level is DiagnosticLevel.FAIL for result in results) else 0
         elif args.command == "list":
             for project in container.project_store.list():
