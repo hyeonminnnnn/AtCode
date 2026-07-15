@@ -18,16 +18,19 @@ AtCode는 Codex, Claude, Gemini 같은 AI CLI를 역할 기반 개발팀으로 �
 
 ## 설치
 
-```bash
-cd /path/to/AtCode
-./scripts/install.sh
-```
-
-`~/.local/bin`이 `PATH`에 없다면 셸 설정에 추가한다.
+WSL에서 AtCode 저장소로 이동해 안내형 설치기를 실행한다.
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
+cd /mnt/d/myproject/AtCode
+bash scripts/install.sh
 ```
+
+설치기는 Python, tmux, WSL/Linux용 Codex, PATH, 로그인 상태를 순서대로
+확인한다. 시스템 패키지 설치, 공식 Codex 설치, `.bashrc` 수정, 로그인은 실행
+전에 동의를 구한다. 마지막에는 `atcode doctor`를 자동 실행한다.
+
+화면에 `source "$HOME/.bashrc"`가 표시되면 한 번 실행해 현재 터미널에 PATH를
+적용한다. 일반 사용에는 Python 가상환경, pip, pytest가 필요하지 않다.
 
 개발 단계의 기본 Runtime 위치는 AtCode 저장소의 `data/`다. 다른 위치를 사용하려면 절대 경로를 지정한다.
 
@@ -60,33 +63,42 @@ atcode status --project /mnt/d/project/SmileLRS
 
 ## 역할과 Adapter
 
-Phase 1의 역할은 다음 5개로 고정된다.
+Phase 1은 다음 세 역할의 단일 Workflow를 사용한다.
 
 ```text
-pm
-developer
-reviewer
-tester
-docs
+PM → Developer → Reviewer → PM
 ```
 
-기본 Adapter 배정:
+역할 책임:
 
 ```text
-pm        = codex
-developer = codex
-reviewer  = codex
-tester    = codex
-docs      = codex
+PM         요구사항 분석, 완료 조건, 작업 배분, 결과 확인, 최종 정리
+Developer  프로젝트에 필요한 프론트엔드·백엔드·디자인·문서 구현
+Reviewer   코드 리뷰, 과설계 점검, 테스트 실행과 최종 검증
 ```
 
-현재 기본값은 다섯 역할 모두 Codex다. Claude, Gemini, Shell Adapter 지원은
-유지되므로 필요한 CLI가 설치되어 있다면 역할별 설정으로 변경할 수 있다.
+Developer는 고정된 Frontend·Backend 역할로 나뉘지 않는다. 프로젝트와 PM Brief를
+읽고 필요한 전문 영역을 판단한다. 병렬 작업이 실제로 필요하면 향후 Developer가
+독립 작업과 통합 순서를 제안하고, PM 또는 사용자 승인 후에만 임시 Team을 만드는
+방향으로 확장한다.
+
+세 역할의 기본 Adapter는 모두 Codex다. Claude, Gemini, Shell Adapter 지원은
+유지되므로 필요한 CLI가 설치되어 있다면 역할별로 변경할 수 있다.
 
 각 역할 Prompt에는 특정 AI 모델의 스킬 이름이나 호출 문법 대신 요구사항 명세,
 점진적 구현, 테스트 우선 개발, 품질·과설계 검토, 증거 중심 테스트, 문서화와
 한국어 윤문 절차가 자연어로 포함된다. 따라서 다른 Adapter를 선택해도 같은 역할
 Prompt를 사용할 수 있다.
+
+기존 5역할 세션은 다음 순서로 세 역할 세션으로 전환한다. 기존 tmux 대화 내용은
+세션 종료와 함께 사라진다.
+
+```bash
+atcode status
+atcode stop
+atcode start
+atcode attach
+```
 
 프로젝트별 변경:
 
@@ -120,6 +132,22 @@ atcode config
 atcode list
 ```
 
+## Phase 2 방향
+
+Phase 2는 기능을 넓히기보다 다음 한 가지 개발 루프를 먼저 완성한다.
+
+```text
+PM /next → Developer /next → Reviewer /next → PM
+```
+
+- 프로젝트당 활성 작업 하나
+- `/next`를 통한 역할 결과 전달
+- 선택적인 3-pane 동시 보기
+- 병렬 이득이 확인된 경우에만 승인 기반 임시 Developer Team
+
+자유 역할 편집, 범용 Task Queue, Workflow DSL, 자동 Agent 대화, Database,
+Web UI는 실제 필요가 확인될 때까지 추가하지 않는다.
+
 ## 제거
 
 명령만 제거하고 Runtime 데이터는 보존한다.
@@ -142,4 +170,8 @@ python3 -m compileall -q src tests
 bash -n bin/atcode scripts/install.sh scripts/uninstall.sh
 ```
 
-상세 설계는 `docs/superpowers/specs/2026-07-15-atcode-phase1-design.md`에서 확인할 수 있다.
+상세 설계는 다음 문서에서 확인할 수 있다.
+
+- `docs/superpowers/specs/2026-07-15-atcode-phase1-design.md`
+- `docs/superpowers/specs/2026-07-15-three-role-runtime-design.md`
+- `docs/superpowers/specs/2026-07-15-guided-wsl-installer-design.md`
