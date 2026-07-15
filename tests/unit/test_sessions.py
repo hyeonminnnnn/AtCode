@@ -140,13 +140,19 @@ def test_start_preflights_all_adapters_before_backend_create(tmp_path: Path) -> 
     assert backend.created_specs == []
 
 
-def test_start_creates_five_role_windows_and_persists_running_state(tmp_path: Path) -> None:
+def test_start_creates_three_role_windows_and_persists_running_state(
+    tmp_path: Path,
+) -> None:
     service, backend, state_store = make_service(tmp_path)
 
     state = service.start()
 
     assert state.status is Lifecycle.RUNNING
-    assert len(backend.created_specs[0].windows) == 5
+    assert tuple(window.name for window in backend.created_specs[0].windows) == (
+        "pm",
+        "developer",
+        "reviewer",
+    )
     assert state_store.states[-1] == state
 
 
@@ -160,12 +166,12 @@ def test_start_is_idempotent_when_session_already_exists(tmp_path: Path) -> None
     assert len(backend.created_specs) == 1
 
 
-def test_start_rejects_an_existing_degraded_session(tmp_path: Path) -> None:
+def test_start_rejects_an_existing_legacy_session(tmp_path: Path) -> None:
     service, backend, state_store = make_service(tmp_path)
     backend.snapshot = SessionSnapshot(
         "atcode-target-1234567890",
         True,
-        ("pm", "developer"),
+        ("pm", "developer", "reviewer", "tester", "docs"),
         "pm",
     )
 
@@ -202,6 +208,20 @@ def test_status_is_degraded_when_role_window_is_missing(tmp_path: Path) -> None:
         "atcode-target-1234567890",
         True,
         ("pm", "developer"),
+        "pm",
+    )
+
+    state = service.status()
+
+    assert state.status is Lifecycle.DEGRADED
+
+
+def test_status_is_degraded_when_legacy_windows_are_extra(tmp_path: Path) -> None:
+    service, backend, _state_store = make_service(tmp_path)
+    backend.snapshot = SessionSnapshot(
+        "atcode-target-1234567890",
+        True,
+        ("pm", "developer", "reviewer", "tester", "docs"),
         "pm",
     )
 

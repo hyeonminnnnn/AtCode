@@ -29,7 +29,7 @@ class FakeRunner:
 
 
 def session_spec(tmp_path: Path) -> SessionSpec:
-    roles = ("pm", "developer", "reviewer", "tester", "docs")
+    roles = ("pm", "developer", "reviewer")
     windows = tuple(
         WindowSpec(
             name=role,
@@ -48,12 +48,12 @@ def session_spec(tmp_path: Path) -> SessionSpec:
 def test_create_session_builds_all_role_windows(tmp_path: Path) -> None:
     runner = FakeRunner(
         [(1, "", "")]
-        + [(0, "", "")] * 6
+        + [(0, "", "")] * 4
         + [
             (0, "", ""),
             (
                 0,
-                "pm\t1\ndeveloper\t0\nreviewer\t0\ntester\t0\ndocs\t0\n",
+                "pm\t1\ndeveloper\t0\nreviewer\t0\n",
                 "",
             ),
         ]
@@ -64,7 +64,7 @@ def test_create_session_builds_all_role_windows(tmp_path: Path) -> None:
 
     assert runner.calls[0][:3] == ("tmux", "has-session", "-t")
     assert sum("new-session" in command for command in runner.calls) == 1
-    assert sum("new-window" in command for command in runner.calls) == 4
+    assert sum("new-window" in command for command in runner.calls) == 2
     assert any("select-window" in command for command in runner.calls)
     assert all("send-keys" not in command for command in runner.calls)
     assert all("capture-pane" not in command for command in runner.calls)
@@ -75,7 +75,7 @@ def test_create_session_rolls_back_when_window_verification_fails(
 ) -> None:
     runner = FakeRunner(
         [(1, "", "")]
-        + [(0, "", "")] * 6
+        + [(0, "", "")] * 4
         + [
             (0, "", ""),
             (0, "pm\t1\ndeveloper\t0\n", ""),

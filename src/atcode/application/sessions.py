@@ -148,7 +148,7 @@ class SessionService:
         actual = set(snapshot.windows)
         if not snapshot.exists:
             lifecycle = Lifecycle.STOPPED
-        elif expected.issubset(actual):
+        elif actual == expected:
             lifecycle = Lifecycle.RUNNING
         else:
             lifecycle = Lifecycle.DEGRADED

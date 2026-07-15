@@ -63,6 +63,77 @@ def test_state_json_contains_no_prompt_or_user_task(tmp_path: Path) -> None:
     assert "task" not in json.dumps(value).lower()
 
 
+def test_legacy_roles_are_filtered_and_removed_on_next_write(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    path = runtime_home / "projects" / project.project_id / "state.json"
+    path.parent.mkdir(parents=True)
+    value = {
+        "schemaVersion": 1,
+        "projectId": project.project_id,
+        "backend": "tmux",
+        "backendSession": f"atcode-{project.project_id}",
+        "status": "running",
+        "startedAt": "2026-07-15T00:00:00Z",
+        "stoppedAt": None,
+        "roles": [
+            {"role": name, "adapter": "codex", "window": name}
+            for name in ("pm", "developer", "reviewer", "tester", "docs")
+        ],
+        "lastError": None,
+    }
+    path.write_text(json.dumps(value), encoding="utf-8")
+    store = JsonStateStore(runtime_home)
+
+    state = store.read(project)
+
+    assert state is not None
+    assert tuple(item.role.value for item in state.roles) == (
+        "pm",
+        "developer",
+        "reviewer",
+    )
+    assert json.loads(path.read_text(encoding="utf-8")) == value
+
+    store.write(project, state)
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert [item["role"] for item in persisted["roles"]] == [
+        "pm",
+        "developer",
+        "reviewer",
+    ]
+
+
+def test_unknown_role_in_state_is_rejected(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    path = runtime_home / "projects" / project.project_id / "state.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "projectId": project.project_id,
+                "backend": "tmux",
+                "backendSession": f"atcode-{project.project_id}",
+                "status": "running",
+                "startedAt": None,
+                "stoppedAt": None,
+                "roles": [
+                    {"role": "architect", "adapter": "codex", "window": "architect"}
+                ],
+                "lastError": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AtCodeError, match="STATE_INVALID"):
+        JsonStateStore(runtime_home).read(project)
+
+
 def test_unsupported_state_schema_is_rejected(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     runtime_home = tmp_path / "runtime"

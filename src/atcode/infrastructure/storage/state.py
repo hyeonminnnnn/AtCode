@@ -17,6 +17,8 @@ from atcode.domain.models import (
 )
 from atcode.infrastructure.storage.json_file import read_json, write_json_atomic
 
+_LEGACY_ROLES = frozenset({"tester", "docs"})
+
 
 class JsonStateStore:
     def __init__(self, runtime_home: Path) -> None:
@@ -32,14 +34,14 @@ class JsonStateStore:
                 raise ValueError("unsupported schemaVersion")
             if value.get("projectId") != project.project_id:
                 raise ValueError("state projectId does not match its directory")
-            roles = tuple(
-                RoleRuntime(
-                    Role(item["role"]),
-                    item["adapter"],
-                    item["window"],
-                )
-                for item in value["roles"]
-            )
+            roles: list[RoleRuntime] = []
+            for item in value["roles"]:
+                role_name = item["role"]
+                adapter = item["adapter"]
+                window = item["window"]
+                if role_name in _LEGACY_ROLES:
+                    continue
+                roles.append(RoleRuntime(Role(role_name), adapter, window))
             return RuntimeState(
                 project_id=value["projectId"],
                 backend=value["backend"],
@@ -47,7 +49,7 @@ class JsonStateStore:
                 status=Lifecycle(value["status"]),
                 started_at=value.get("startedAt"),
                 stopped_at=value.get("stoppedAt"),
-                roles=roles,
+                roles=tuple(roles),
                 last_error=value.get("lastError"),
             )
         except (KeyError, OSError, TypeError, ValueError) as error:
