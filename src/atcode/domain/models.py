@@ -40,6 +40,13 @@ class DeliveryState(str, Enum):
     DELIVERED = "delivered"
 
 
+class WorkflowStatus(str, Enum):
+    IDLE = "idle"
+    ACTIVE = "active"
+    REWORK = "rework"
+    COMPLETE = "complete"
+
+
 @dataclass(frozen=True)
 class RoleAssignment:
     adapter: str
@@ -159,6 +166,20 @@ class Handoff:
     body: str
     created_at: str
     delivered_at: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowState:
+    status: WorkflowStatus
+    current_role: Role
+    round: int
+    last_transfer_id: int
+    last_digests: Mapping[Role, str]
+    updated_at: str | None
+
+    @classmethod
+    def initial(cls) -> "WorkflowState":
+        return cls(WorkflowStatus.IDLE, Role.PM, 0, 0, {}, None)
 
 
 @dataclass(frozen=True)

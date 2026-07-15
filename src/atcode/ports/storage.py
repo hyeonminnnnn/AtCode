@@ -6,7 +6,14 @@ from pathlib import Path
 from contextlib import AbstractContextManager
 from typing import Any, Protocol
 
-from atcode.domain.models import Project, RenderedPrompt, Role, RuntimeState
+from atcode.domain.models import (
+    Handoff,
+    Project,
+    RenderedPrompt,
+    Role,
+    RuntimeState,
+    WorkflowState,
+)
 
 
 class ProjectStore(Protocol):
@@ -48,3 +55,19 @@ class StateStore(Protocol):
     def write(self, project: Project, state: RuntimeState) -> None: ...
 
     def locked(self, project: Project) -> AbstractContextManager[None]: ...
+
+
+class ProjectLock(Protocol):
+    def locked(self, project: Project) -> AbstractContextManager[None]: ...
+
+
+class WorkflowStore(Protocol):
+    def read_workflow(self, project: Project) -> WorkflowState: ...
+
+    def write_workflow(self, project: Project, state: WorkflowState) -> None: ...
+
+    def read_handoff(self, project: Project) -> Handoff | None: ...
+
+    def write_handoff(self, project: Project, handoff: Handoff) -> None: ...
+
+    def delete_handoff(self, project: Project) -> None: ...

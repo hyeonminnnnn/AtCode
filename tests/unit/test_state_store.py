@@ -15,6 +15,7 @@ from atcode.domain.models import (
     RuntimeState,
 )
 from atcode.infrastructure.storage.state import JsonStateStore
+from atcode.infrastructure.storage.lock import JsonProjectLock
 
 
 def make_project(tmp_path: Path) -> Project:
@@ -168,9 +169,9 @@ def test_unsupported_state_schema_is_rejected(tmp_path: Path) -> None:
 def test_lock_file_is_created_under_runtime_home(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     runtime_home = tmp_path / "runtime"
-    store = JsonStateStore(runtime_home)
+    lock = JsonProjectLock(runtime_home)
 
-    with store.locked(project):
+    with lock.locked(project):
         lock_path = runtime_home / "projects" / project.project_id / "state.lock"
         assert lock_path.is_file()
 
