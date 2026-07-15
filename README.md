@@ -73,12 +73,20 @@ docs
 기본 Adapter 배정:
 
 ```text
-pm        = claude
+pm        = codex
 developer = codex
-reviewer  = gemini
+reviewer  = codex
 tester    = codex
-docs      = claude
+docs      = codex
 ```
+
+현재 기본값은 다섯 역할 모두 Codex다. Claude, Gemini, Shell Adapter 지원은
+유지되므로 필요한 CLI가 설치되어 있다면 역할별 설정으로 변경할 수 있다.
+
+각 역할 Prompt에는 특정 AI 모델의 스킬 이름이나 호출 문법 대신 요구사항 명세,
+점진적 구현, 테스트 우선 개발, 품질·과설계 검토, 증거 중심 테스트, 문서화와
+한국어 윤문 절차가 자연어로 포함된다. 따라서 다른 Adapter를 선택해도 같은 역할
+Prompt를 사용할 수 있다.
 
 프로젝트별 변경:
 
