@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 
 import pytest
@@ -26,3 +27,13 @@ def test_missing_executable_becomes_structured_error() -> None:
 
     with pytest.raises(AtCodeError, match="PROCESS_NOT_FOUND"):
         runner.run(("atcode-command-that-does-not-exist", "--version"))
+
+
+def test_os_error_becomes_structured_error(monkeypatch) -> None:
+    def deny(*_args, **_kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(subprocess, "run", deny)
+
+    with pytest.raises(AtCodeError, match="PROCESS_FAILED"):
+        SubprocessRunner().run(("tmux", "-V"))

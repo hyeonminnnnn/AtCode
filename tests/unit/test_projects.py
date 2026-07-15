@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -76,3 +77,26 @@ def test_explicit_missing_directory_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(AtCodeError, match="PROJECT_ROOT_INVALID"):
         service.resolve_root(tmp_path / "missing", tmp_path)
+
+
+def test_registration_id_must_match_its_directory(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    projects = tmp_path / "runtime" / "projects"
+    path = projects / "target-1234567890" / "project.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "projectId": "other-0987654321",
+                "name": "target",
+                "root": str(target),
+                "createdAt": "created",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AtCodeError, match="PROJECT_DATA_INVALID"):
+        JsonProjectStore(projects).list()

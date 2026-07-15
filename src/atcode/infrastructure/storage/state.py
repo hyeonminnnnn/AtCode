@@ -30,6 +30,8 @@ class JsonStateStore:
             value = read_json(path)
             if value.get("schemaVersion") != 1:
                 raise ValueError("unsupported schemaVersion")
+            if value.get("projectId") != project.project_id:
+                raise ValueError("state projectId does not match its directory")
             roles = tuple(
                 RoleRuntime(
                     Role(item["role"]),

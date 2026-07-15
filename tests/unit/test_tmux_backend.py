@@ -46,7 +46,18 @@ def session_spec(tmp_path: Path) -> SessionSpec:
 
 
 def test_create_session_builds_all_role_windows(tmp_path: Path) -> None:
-    runner = FakeRunner([(1, "", "")] + [(0, "", "")] * 6)
+    runner = FakeRunner(
+        [(1, "", "")]
+        + [(0, "", "")] * 6
+        + [
+            (0, "", ""),
+            (
+                0,
+                "pm\t1\ndeveloper\t0\nreviewer\t0\ntester\t0\ndocs\t0\n",
+                "",
+            ),
+        ]
+    )
     backend = TmuxBackend(runner, {})
 
     backend.create_session(session_spec(tmp_path))
@@ -57,6 +68,26 @@ def test_create_session_builds_all_role_windows(tmp_path: Path) -> None:
     assert any("select-window" in command for command in runner.calls)
     assert all("send-keys" not in command for command in runner.calls)
     assert all("capture-pane" not in command for command in runner.calls)
+
+
+def test_create_session_rolls_back_when_window_verification_fails(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner(
+        [(1, "", "")]
+        + [(0, "", "")] * 6
+        + [
+            (0, "", ""),
+            (0, "pm\t1\ndeveloper\t0\n", ""),
+            (0, "", ""),
+        ]
+    )
+    backend = TmuxBackend(runner, {})
+
+    with pytest.raises(AtCodeError, match="TMUX_CREATE_FAILED"):
+        backend.create_session(session_spec(tmp_path))
+
+    assert "kill-session" in runner.calls[-1]
 
 
 def test_partial_creation_rolls_back_new_session(tmp_path: Path) -> None:

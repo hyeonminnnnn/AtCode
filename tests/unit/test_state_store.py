@@ -82,3 +82,17 @@ def test_lock_file_is_created_under_runtime_home(tmp_path: Path) -> None:
     with store.locked(project):
         lock_path = runtime_home / "projects" / project.project_id / "state.lock"
         assert lock_path.is_file()
+
+
+def test_state_for_a_different_project_is_rejected(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    store = JsonStateStore(runtime_home)
+    store.write(project, make_state(project))
+    path = runtime_home / "projects" / project.project_id / "state.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["projectId"] = "other-0987654321"
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(AtCodeError, match="STATE_INVALID"):
+        store.read(project)

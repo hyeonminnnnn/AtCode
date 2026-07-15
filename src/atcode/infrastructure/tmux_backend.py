@@ -84,6 +84,13 @@ class TmuxBackend:
                 ),
                 "select-window",
             )
+            snapshot = self.inspect_session(spec.session_name)
+            expected_windows = {window.name for window in spec.windows}
+            if set(snapshot.windows) != expected_windows:
+                raise AtCodeError(
+                    "TMUX_WINDOW_SET_INVALID",
+                    "tmux did not create every requested role window.",
+                )
         except AtCodeError as error:
             if created:
                 self._runner.run(

@@ -114,11 +114,25 @@ class ConfigurationService:
         project: Project | None,
         global_scope: bool,
     ) -> dict[str, Any]:
-        if global_scope:
-            return self._store.read_global()
-        if project is None:
-            raise AtCodeError("PROJECT_REQUIRED", "A project is required.", exit_code=2)
-        return self._store.read_project(project)
+        try:
+            if global_scope:
+                return self._store.read_global()
+            if project is None:
+                raise AtCodeError(
+                    "PROJECT_REQUIRED",
+                    "A project is required.",
+                    exit_code=2,
+                )
+            return self._store.read_project(project)
+        except AtCodeError:
+            raise
+        except (OSError, TypeError, ValueError) as error:
+            raise AtCodeError(
+                "CONFIG_INVALID",
+                "Runtime configuration is invalid.",
+                hint="Inspect the global and project config.json files.",
+                exit_code=2,
+            ) from error
 
     def _write_target(
         self,

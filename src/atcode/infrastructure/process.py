@@ -55,6 +55,12 @@ class SubprocessRunner:
                 "PROCESS_TIMEOUT",
                 f"Command timed out: {command[0]}",
             ) from error
+        except OSError as error:
+            raise AtCodeError(
+                "PROCESS_FAILED",
+                f"Could not execute: {command[0]}",
+                hint=str(error),
+            ) from error
         return CommandResult(
             argv=command,
             returncode=completed.returncode,
@@ -85,4 +91,10 @@ class SubprocessRunner:
             raise AtCodeError(
                 "PROCESS_NOT_FOUND",
                 f"Executable not found: {command[0]}",
+            ) from error
+        except OSError as error:
+            raise AtCodeError(
+                "PROCESS_FAILED",
+                f"Could not execute: {command[0]}",
+                hint=str(error),
             ) from error

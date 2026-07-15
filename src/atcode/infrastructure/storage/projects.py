@@ -80,6 +80,8 @@ class JsonProjectStore:
                 created_at=value["createdAt"],
             )
             JsonProjectStore._validate_id(project.project_id)
+            if path.parent.name != project.project_id:
+                raise ValueError("projectId does not match its directory")
             return project
         except (KeyError, OSError, TypeError, ValueError) as error:
             raise AtCodeError(

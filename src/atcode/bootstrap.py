@@ -140,6 +140,8 @@ def build_container(
         configuration=configuration,
         adapters=adapter_registry,
         backend=terminal_backend,
+        prompts=prompts,
+        state_store=state_store,
     )
     return AppContainer(
         paths,

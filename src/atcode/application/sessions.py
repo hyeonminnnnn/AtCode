@@ -51,6 +51,12 @@ class SessionService:
             if snapshot.exists:
                 state = self._state_from_snapshot(snapshot, config)
                 self._state_store.write(self._project, state)
+                if state.status is Lifecycle.DEGRADED:
+                    raise AtCodeError(
+                        "SESSION_DEGRADED",
+                        "The existing project session is missing role windows.",
+                        hint="Run atcode stop, then atcode start.",
+                    )
                 return state
 
             backend_probe = self._backend.probe()
@@ -119,13 +125,14 @@ class SessionService:
             return state
 
     def status(self) -> RuntimeState:
-        config = self._configuration.effective(self._project)
-        state = self._state_from_snapshot(
-            self._backend.inspect_session(self._session_name),
-            config,
-        )
-        self._state_store.write(self._project, state)
-        return state
+        with self._state_store.locked(self._project):
+            config = self._configuration.effective(self._project)
+            state = self._state_from_snapshot(
+                self._backend.inspect_session(self._session_name),
+                config,
+            )
+            self._state_store.write(self._project, state)
+            return state
 
     def _state_from_snapshot(
         self,
@@ -151,7 +158,15 @@ class SessionService:
             session_name=self._session_name,
             status=lifecycle,
             started_at=now if starting else (previous.started_at if previous else None),
-            stopped_at=now if stopping else None,
+            stopped_at=(
+                (previous.stopped_at if previous and previous.stopped_at else now)
+                if stopping
+                else (
+                    previous.stopped_at
+                    if lifecycle is Lifecycle.STOPPED and previous
+                    else None
+                )
+            ),
             roles=tuple(
                 RoleRuntime(role, config.roles[role].adapter, role.value) for role in Role
             ),

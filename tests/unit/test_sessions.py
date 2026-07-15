@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -88,9 +87,19 @@ class FakeBackend:
 class FakeStateStore:
     def __init__(self) -> None:
         self.states = []
+        self.lock_count = 0
 
     def locked(self, _project):
-        return nullcontext()
+        store = self
+
+        class Lock:
+            def __enter__(self):
+                store.lock_count += 1
+
+            def __exit__(self, _error_type, _error, _traceback):
+                return False
+
+        return Lock()
 
     def write(self, _project, state):
         self.states.append(state)
@@ -151,6 +160,22 @@ def test_start_is_idempotent_when_session_already_exists(tmp_path: Path) -> None
     assert len(backend.created_specs) == 1
 
 
+def test_start_rejects_an_existing_degraded_session(tmp_path: Path) -> None:
+    service, backend, state_store = make_service(tmp_path)
+    backend.snapshot = SessionSnapshot(
+        "atcode-target-1234567890",
+        True,
+        ("pm", "developer"),
+        "pm",
+    )
+
+    with pytest.raises(AtCodeError, match="SESSION_DEGRADED"):
+        service.start()
+
+    assert state_store.states[-1].status is Lifecycle.DEGRADED
+    assert backend.created_specs == []
+
+
 def test_stop_is_idempotent(tmp_path: Path) -> None:
     service, backend, _state_store = make_service(tmp_path)
 
@@ -158,6 +183,17 @@ def test_stop_is_idempotent(tmp_path: Path) -> None:
 
     assert state.status is Lifecycle.STOPPED
     assert backend.terminated == []
+
+
+def test_repeated_stop_preserves_the_original_stop_timestamp(tmp_path: Path) -> None:
+    service, _backend, _state_store = make_service(tmp_path)
+    service.start()
+
+    first = service.stop()
+    second = service.stop()
+
+    assert first.stopped_at is not None
+    assert second.stopped_at == first.stopped_at
 
 
 def test_status_is_degraded_when_role_window_is_missing(tmp_path: Path) -> None:
@@ -172,3 +208,21 @@ def test_status_is_degraded_when_role_window_is_missing(tmp_path: Path) -> None:
     state = service.status()
 
     assert state.status is Lifecycle.DEGRADED
+
+
+def test_status_updates_state_while_holding_project_lock(tmp_path: Path) -> None:
+    service, _backend, state_store = make_service(tmp_path)
+
+    service.status()
+
+    assert state_store.lock_count == 1
+
+
+def test_status_preserves_stopped_timestamp(tmp_path: Path) -> None:
+    service, _backend, _state_store = make_service(tmp_path)
+    stopped = service.stop()
+
+    current = service.status()
+
+    assert stopped.stopped_at is not None
+    assert current.stopped_at == stopped.stopped_at

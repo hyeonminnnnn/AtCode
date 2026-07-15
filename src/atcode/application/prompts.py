@@ -19,6 +19,7 @@ class PromptRenderer:
 
     def render(self, project: Project, role: Role) -> RenderedPrompt:
         template = self._store.read_template(role)
+        self._validate_template(template)
         values = {
             "PROJECT_NAME": project.name,
             "PROJECT_ROOT": str(project.root),
@@ -26,11 +27,27 @@ class PromptRenderer:
             "ROLE": role.value,
             "ATCODE_HOME": str(self._runtime_home),
         }
-        unknown = sorted(set(_TOKEN.findall(template)) - set(values))
+        rendered = _TOKEN.sub(lambda match: values[match.group(1)], template)
+        return self._store.write_rendered(project, role, rendered)
+
+    def validate_templates(self) -> None:
+        """Validate source templates without rendering or writing files."""
+
+        for role in Role:
+            self._validate_template(self._store.read_template(role))
+
+    @staticmethod
+    def _validate_template(template: str) -> None:
+        allowed = {
+            "PROJECT_NAME",
+            "PROJECT_ROOT",
+            "PROJECT_ID",
+            "ROLE",
+            "ATCODE_HOME",
+        }
+        unknown = sorted(set(_TOKEN.findall(template)) - allowed)
         if unknown:
             raise AtCodeError(
                 "PROMPT_TOKEN_UNKNOWN",
                 f"Unknown role prompt token: {unknown[0]}",
             )
-        rendered = _TOKEN.sub(lambda match: values[match.group(1)], template)
-        return self._store.write_rendered(project, role, rendered)

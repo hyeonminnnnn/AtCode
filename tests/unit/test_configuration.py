@@ -91,3 +91,26 @@ def test_unknown_json_key_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(AtCodeError, match="CONFIG_INVALID"):
         service.effective(project)
+
+
+@pytest.mark.parametrize("operation", ["set", "unset"])
+def test_mutation_reports_structured_error_for_malformed_json(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    project = make_project(tmp_path)
+    service, _store = make_service(tmp_path)
+    path = tmp_path / "runtime" / "projects" / project.project_id / "config.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{", encoding="utf-8")
+
+    with pytest.raises(AtCodeError, match="CONFIG_INVALID"):
+        if operation == "set":
+            service.set(
+                project,
+                "roles.pm.adapter",
+                "codex",
+                global_scope=False,
+            )
+        else:
+            service.unset(project, "roles.pm.adapter", global_scope=False)
