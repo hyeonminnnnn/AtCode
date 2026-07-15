@@ -9,9 +9,11 @@ from pathlib import Path
 
 from atcode.application.configuration import ConfigurationService
 from atcode.application.diagnostics import DiagnosticsService
+from atcode.application.handoffs import HandoffParser
 from atcode.application.projects import ProjectService
 from atcode.application.prompts import PromptRenderer, StartupPromptBuilder
 from atcode.application.sessions import SessionService
+from atcode.application.workflow import WorkflowService
 from atcode.domain.errors import AtCodeError
 from atcode.domain.models import Project
 from atcode.infrastructure.adapters.claude import ClaudeAdapter
@@ -74,6 +76,7 @@ class AppContainer:
     workflow_store: JsonWorkflowStore
     project_lock: JsonProjectLock
     startup_prompts: StartupPromptBuilder
+    handoff_parser: HandoffParser
     diagnostics: DiagnosticsService
 
     def registered_project(self, explicit: str | Path | None, cwd: Path) -> Project:
@@ -99,6 +102,25 @@ class AppContainer:
             project_lock=self.project_lock,
             startup_prompts=self.startup_prompts,
             atcode_home=self.paths.home,
+        )
+
+    def workflows(self, project: Project) -> WorkflowService:
+        return WorkflowService(
+            project=project,
+            session_name=f"atcode-{project.project_id}",
+            backend=self.backend,
+            parser=self.handoff_parser,
+            store=self.workflow_store,
+            project_lock=self.project_lock,
+        )
+
+    def project_for_session(self, session_name: str) -> Project:
+        for project in self.project_store.list():
+            if f"atcode-{project.project_id}" == session_name:
+                return project
+        raise AtCodeError(
+            "SESSION_NOT_REGISTERED",
+            f"No registered project owns session: {session_name}",
         )
 
 
@@ -146,6 +168,7 @@ def build_container(
     workflow_store = JsonWorkflowStore(paths.home)
     project_lock = JsonProjectLock(paths.home)
     startup_prompts = StartupPromptBuilder()
+    handoff_parser = HandoffParser()
     diagnostics = DiagnosticsService(
         paths=paths,
         configuration=configuration,
@@ -166,5 +189,6 @@ def build_container(
         workflow_store,
         project_lock,
         startup_prompts,
+        handoff_parser,
         diagnostics,
     )
