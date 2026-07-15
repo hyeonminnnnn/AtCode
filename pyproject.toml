@@ -1,0 +1,10 @@
+[project]
+name = "atcode"
+version = "0.1.0"
+description = "AI Team Runtime for multiple CLI agents"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
