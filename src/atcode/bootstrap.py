@@ -10,7 +10,7 @@ from pathlib import Path
 from atcode.application.configuration import ConfigurationService
 from atcode.application.diagnostics import DiagnosticsService
 from atcode.application.projects import ProjectService
-from atcode.application.prompts import PromptRenderer
+from atcode.application.prompts import PromptRenderer, StartupPromptBuilder
 from atcode.application.sessions import SessionService
 from atcode.domain.errors import AtCodeError
 from atcode.domain.models import Project
@@ -21,9 +21,11 @@ from atcode.infrastructure.adapters.registry import AdapterRegistry
 from atcode.infrastructure.adapters.shell import ShellAdapter
 from atcode.infrastructure.process import SubprocessRunner
 from atcode.infrastructure.storage.configuration import JsonConfigurationStore
+from atcode.infrastructure.storage.lock import JsonProjectLock
 from atcode.infrastructure.storage.projects import JsonProjectStore
 from atcode.infrastructure.storage.prompts import FilesystemPromptStore
 from atcode.infrastructure.storage.state import JsonStateStore
+from atcode.infrastructure.storage.workflow import JsonWorkflowStore
 from atcode.infrastructure.tmux_backend import TmuxBackend
 from atcode.ports.backend import TerminalBackend
 
@@ -69,6 +71,9 @@ class AppContainer:
     adapters: AdapterRegistry
     backend: TerminalBackend
     state_store: JsonStateStore
+    workflow_store: JsonWorkflowStore
+    project_lock: JsonProjectLock
+    startup_prompts: StartupPromptBuilder
     diagnostics: DiagnosticsService
 
     def registered_project(self, explicit: str | Path | None, cwd: Path) -> Project:
@@ -90,6 +95,9 @@ class AppContainer:
             adapters=self.adapters,
             backend=self.backend,
             state_store=self.state_store,
+            workflow_store=self.workflow_store,
+            project_lock=self.project_lock,
+            startup_prompts=self.startup_prompts,
             atcode_home=self.paths.home,
         )
 
@@ -135,6 +143,9 @@ def build_container(
         paths.home,
     )
     state_store = JsonStateStore(paths.home)
+    workflow_store = JsonWorkflowStore(paths.home)
+    project_lock = JsonProjectLock(paths.home)
+    startup_prompts = StartupPromptBuilder()
     diagnostics = DiagnosticsService(
         paths=paths,
         configuration=configuration,
@@ -152,5 +163,8 @@ def build_container(
         adapter_registry,
         terminal_backend,
         state_store,
+        workflow_store,
+        project_lock,
+        startup_prompts,
         diagnostics,
     )

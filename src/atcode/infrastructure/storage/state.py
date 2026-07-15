@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import os
-from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO, Iterator
 
 from atcode.domain.errors import AtCodeError
 from atcode.domain.models import (
@@ -92,46 +89,8 @@ class JsonStateStore:
             },
         )
 
-    @contextmanager
-    def locked(self, project: Project) -> Iterator[None]:
-        path = self._project_dir(project) / "state.lock"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a+b") as stream:
-            _acquire(stream)
-            try:
-                yield
-            finally:
-                _release(stream)
-
     def _project_dir(self, project: Project) -> Path:
         return self._home / "projects" / project.project_id
 
     def _state_path(self, project: Project) -> Path:
         return self._project_dir(project) / "state.json"
-
-
-def _acquire(stream: BinaryIO) -> None:
-    if os.name == "nt":
-        import msvcrt
-
-        if stream.seek(0, os.SEEK_END) == 0:
-            stream.write(b"0")
-            stream.flush()
-        stream.seek(0)
-        msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
-
-
-def _release(stream: BinaryIO) -> None:
-    if os.name == "nt":
-        import msvcrt
-
-        stream.seek(0)
-        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(stream.fileno(), fcntl.LOCK_UN)

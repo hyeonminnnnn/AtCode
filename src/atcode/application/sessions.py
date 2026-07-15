@@ -19,8 +19,9 @@ from atcode.domain.models import (
     SessionSpec,
     RoleSpec,
 )
+from atcode.application.workflow import reconcile_state
 from atcode.ports.backend import TerminalBackend
-from atcode.ports.storage import StateStore
+from atcode.ports.storage import ProjectLock, StateStore, WorkflowStore
 
 
 class SessionService:
@@ -33,6 +34,9 @@ class SessionService:
         adapters: Any,
         backend: TerminalBackend,
         state_store: StateStore,
+        workflow_store: WorkflowStore,
+        project_lock: ProjectLock,
+        startup_prompts: Any,
         atcode_home: Path,
     ) -> None:
         self._project = project
@@ -41,11 +45,14 @@ class SessionService:
         self._adapters = adapters
         self._backend = backend
         self._state_store = state_store
+        self._workflow_store = workflow_store
+        self._project_lock = project_lock
+        self._startup_prompts = startup_prompts
         self._atcode_home = atcode_home
         self._session_name = f"atcode-{project.project_id}"
 
     def start(self) -> RuntimeState:
-        with self._state_store.locked(self._project):
+        with self._project_lock.locked(self._project):
             config = self._configuration.effective(self._project)
             snapshot = self._backend.inspect_session(self._session_name)
             if snapshot.exists:
@@ -67,9 +74,26 @@ class SessionService:
                     hint=backend_probe.hint,
                 )
 
+            workflow = self._workflow_store.read_workflow(self._project)
+            handoff = self._workflow_store.read_handoff(self._project)
+            reconciled = reconcile_state(
+                workflow,
+                handoff,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            if reconciled != workflow:
+                self._workflow_store.write_workflow(self._project, reconciled)
+            workflow = reconciled
+
             roles: list[RoleSpec] = []
             for role in Role:
                 rendered = self._prompts.render(self._project, role)
+                startup_prompt = self._startup_prompts.build(
+                    rendered,
+                    role,
+                    workflow,
+                    handoff,
+                )
                 assignment = config.roles[role]
                 adapter = self._adapters.get(assignment.adapter)
                 diagnostic = adapter.probe()
@@ -82,7 +106,7 @@ class SessionService:
                 context = RoleLaunchContext(
                     self._project,
                     role,
-                    rendered,
+                    startup_prompt,
                     self._atcode_home,
                 )
                 roles.append(
@@ -116,7 +140,7 @@ class SessionService:
         self._backend.attach_session(self._session_name)
 
     def stop(self) -> RuntimeState:
-        with self._state_store.locked(self._project):
+        with self._project_lock.locked(self._project):
             config = self._configuration.effective(self._project)
             snapshot = self._backend.inspect_session(self._session_name)
             if snapshot.exists:
@@ -130,7 +154,7 @@ class SessionService:
             return state
 
     def status(self) -> RuntimeState:
-        with self._state_store.locked(self._project):
+        with self._project_lock.locked(self._project):
             config = self._configuration.effective(self._project)
             state = self._state_from_snapshot(
                 self._backend.inspect_session(self._session_name),
@@ -180,14 +204,7 @@ class SessionService:
                 RoleRuntime(
                     role,
                     config.roles[role].adapter,
-                    next(
-                        (
-                            endpoint.pane
-                            for endpoint in snapshot.endpoints
-                            if endpoint.role is role
-                        ),
-                        role.value,
-                    ),
+                    role.value,
                 )
                 for role in Role
             ),
