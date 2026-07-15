@@ -29,6 +29,17 @@ class Layout(str, Enum):
     WINDOWS = "windows"
 
 
+class HandoffDecision(str, Enum):
+    READY = "ready"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class DeliveryState(str, Enum):
+    PENDING = "pending"
+    DELIVERED = "delivered"
+
+
 @dataclass(frozen=True)
 class RoleAssignment:
     adapter: str
@@ -128,6 +139,26 @@ class RoleRuntime:
     role: Role
     adapter: str
     endpoint: str
+
+
+@dataclass(frozen=True)
+class ParsedHandoff:
+    decision: HandoffDecision
+    body: str
+    digest: str
+
+
+@dataclass(frozen=True)
+class Handoff:
+    transfer_id: int
+    from_role: Role
+    to_role: Role
+    decision: HandoffDecision
+    delivery: DeliveryState
+    digest: str
+    body: str
+    created_at: str
+    delivered_at: str | None = None
 
 
 @dataclass(frozen=True)
