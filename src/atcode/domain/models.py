@@ -44,3 +44,9 @@ class RuntimeConfig:
                 role.value: {"adapter": self.roles[role].adapter} for role in Role
             },
         }
+
+
+@dataclass(frozen=True)
+class RenderedPrompt:
+    text: str
+    path: Path

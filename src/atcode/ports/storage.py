@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol
 
-from atcode.domain.models import Project
+from atcode.domain.models import Project, RenderedPrompt, Role
 
 
 class ProjectStore(Protocol):
@@ -28,3 +28,14 @@ class ConfigurationStore(Protocol):
     def read_project(self, project: Project) -> dict[str, Any]: ...
 
     def write_project(self, project: Project, value: dict[str, Any]) -> None: ...
+
+
+class PromptStore(Protocol):
+    def read_template(self, role: Role) -> str: ...
+
+    def write_rendered(
+        self,
+        project: Project,
+        role: Role,
+        text: str,
+    ) -> RenderedPrompt: ...
