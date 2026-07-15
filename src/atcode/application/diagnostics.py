@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from atcode.application.workflow import reconcile_state
 from atcode.domain.errors import AtCodeError
 from atcode.domain.models import (
     DiagnosticLevel,
@@ -27,6 +29,8 @@ class DiagnosticsService:
         backend: Any,
         prompts: Any,
         state_store: Any,
+        workflow_store: Any,
+        project_lock: Any,
     ) -> None:
         self._paths = paths
         self._configuration = configuration
@@ -34,10 +38,24 @@ class DiagnosticsService:
         self._backend = backend
         self._prompts = prompts
         self._state_store = state_store
+        self._workflow_store = workflow_store
+        self._project_lock = project_lock
 
     def run(self, project: Project | None) -> tuple[DiagnosticResult, ...]:
         backend_result = self._backend.probe()
         results = [self._python(), self._platform(), self._home(), backend_result]
+        if backend_result.ok:
+            try:
+                results.append(self._backend.next_action_probe())
+            except AtCodeError as error:
+                results.append(
+                    DiagnosticResult(
+                        "next-action",
+                        DiagnosticLevel.FAIL,
+                        error.message,
+                        error.hint,
+                    )
+                )
 
         try:
             config = self._configuration.effective(project)
@@ -85,7 +103,43 @@ class DiagnosticsService:
             )
             if backend_result.ok:
                 results.append(self._state_session(project))
+            results.append(self._workflow(project))
         return tuple(results)
+
+    def _workflow(self, project: Project) -> DiagnosticResult:
+        try:
+            with self._project_lock.locked(project):
+                state = self._workflow_store.read_workflow(project)
+                handoff = self._workflow_store.read_handoff(project)
+                reconciled = reconcile_state(
+                    state,
+                    handoff,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+        except AtCodeError as error:
+            return DiagnosticResult(
+                "workflow",
+                DiagnosticLevel.FAIL,
+                error.message,
+                error.hint,
+            )
+
+        message = (
+            f"{state.status.value}; role={state.current_role.value}; "
+            f"round={state.round}; transfer={state.last_transfer_id}"
+        )
+        if reconciled != state:
+            return DiagnosticResult(
+                "workflow",
+                DiagnosticLevel.WARN,
+                message + "; delivered handoff is awaiting reconciliation",
+                "Run atcode status to reconcile Runtime state.",
+            )
+        return DiagnosticResult(
+            "workflow",
+            DiagnosticLevel.PASS,
+            message,
+        )
 
     def _state_session(self, project: Project) -> DiagnosticResult:
         try:
@@ -93,11 +147,7 @@ class DiagnosticsService:
             snapshot = self._backend.inspect_session(
                 f"atcode-{project.project_id}"
             )
-            expected_layout = (
-                state.layout
-                if state is not None
-                else self._configuration.effective(project).layout
-            )
+            expected_layout = self._configuration.effective(project).layout
         except AtCodeError as error:
             return DiagnosticResult(
                 "state/session",
@@ -131,11 +181,27 @@ class DiagnosticsService:
                 else DiagnosticLevel.WARN
             )
             message = f"stored={state.status.value}; tmux={actual.value}"
+        if snapshot.exists:
+            roles = ", ".join(
+                role.value
+                for role in Role
+                if role in {item.role for item in snapshot.endpoints}
+            )
+            layout = (
+                snapshot.layout.value
+                if snapshot.layout is not None
+                else "unknown"
+            )
+            message += f"; layout={layout}; roles={roles or 'none'}"
         return DiagnosticResult(
             "state/session",
             level,
             message,
-            None if level is DiagnosticLevel.PASS else "Run atcode status to reconcile state.",
+            (
+                None
+                if level is DiagnosticLevel.PASS
+                else "Run atcode status to reconcile state."
+            ),
         )
 
     @staticmethod

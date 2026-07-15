@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import StringIO
 from pathlib import Path
 
+from atcode.application.diagnostics import DiagnosticsService
 from atcode.bootstrap import build_container
 from atcode.cli import run
 from atcode.domain.models import (
@@ -39,6 +40,11 @@ class FakeBackend:
         self.outputs = {}
         self.deliveries = []
         self.messages = []
+        self.next_action_result = DiagnosticResult(
+            "next-action",
+            DiagnosticLevel.PASS,
+            "Ctrl+b Enter",
+        )
 
     def probe(self):
         return DiagnosticResult("tmux", DiagnosticLevel.PASS, "tmux fake")
@@ -88,18 +94,10 @@ class FakeBackend:
         )
 
     def install_next_action(self):
-        return DiagnosticResult(
-            "next-action",
-            DiagnosticLevel.PASS,
-            "Ctrl+b Enter",
-        )
+        return self.next_action_result
 
     def next_action_probe(self):
-        return DiagnosticResult(
-            "next-action",
-            DiagnosticLevel.PASS,
-            "Ctrl+b Enter",
-        )
+        return self.next_action_result
 
     def display_message(self, message):
         self.messages.append(message)
@@ -332,3 +330,64 @@ def test_doctor_reports_missing_adapter_without_traceback(tmp_path: Path) -> Non
     assert "codex" in stdout
     assert "WSL용 Codex를 설치하세요." in stdout
     assert "Traceback" not in stderr
+
+
+def test_doctor_reports_workflow_endpoints_and_binding(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        DiagnosticsService,
+        "_platform",
+        staticmethod(
+            lambda: DiagnosticResult(
+                "platform",
+                DiagnosticLevel.PASS,
+                "linux",
+            )
+        ),
+    )
+    target = tmp_path / "target"
+    target.mkdir()
+    container = make_container(tmp_path)
+    invoke(container, target, "init")
+    invoke(container, target, "start")
+
+    code, stdout, stderr = invoke(container, target, "doctor")
+
+    assert code == 0
+    assert "workflow" in stdout
+    assert "pm, developer, reviewer" in stdout
+    assert "next-action" in stdout
+    assert "Traceback" not in stderr
+
+
+def test_doctor_binding_warning_keeps_success_exit_code(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        DiagnosticsService,
+        "_platform",
+        staticmethod(
+            lambda: DiagnosticResult(
+                "platform",
+                DiagnosticLevel.PASS,
+                "linux",
+            )
+        ),
+    )
+    container = make_container(tmp_path)
+    container.backend.next_action_result = DiagnosticResult(
+        "next-action",
+        DiagnosticLevel.WARN,
+        "Ctrl+b Enter conflict",
+        "Use atcode next.",
+    )
+
+    code, stdout, stderr = invoke(container, tmp_path, "doctor")
+
+    assert code == 0
+    assert "WARN" in stdout
+    assert "Use atcode next." in stdout
+    assert stderr == ""

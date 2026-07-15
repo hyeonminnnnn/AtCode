@@ -1,13 +1,13 @@
 # AtCode
 
-AtCode는 Codex, Claude, Gemini 같은 AI CLI를 역할 기반 개발팀으로 실행하는 Runtime이다. Phase 1은 WSL2와 Linux에서 tmux를 Backend로 사용한다.
+AtCode는 Codex, Claude, Gemini 같은 AI CLI를 역할 기반 개발팀으로 실행하는 Runtime이다. 현재 WSL2와 Linux에서 tmux를 Backend로 사용한다.
 
 ## 핵심 원칙
 
 - AtCode 설정, 상태, Prompt, Workspace는 `ATCODE_HOME`에만 저장한다.
 - 실제 작업 대상 프로젝트에는 AtCode 관리 파일을 만들지 않는다.
 - AI CLI는 사용자가 지시한 개발 작업에 따라 대상 프로젝트 소스를 수정할 수 있다.
-- Phase 1은 Agent 자동 전달, Task Queue, `send-keys`, `capture-pane`를 지원하지 않는다.
+- 역할 전달에는 tmux pane의 현재 출력을 일시적으로 읽지만 전체 대화나 출력 이력을 파일로 저장하지 않는다.
 
 ## 요구 환경
 
@@ -48,6 +48,23 @@ atcode start
 atcode attach
 ```
 
+기본 화면은 `team` 창 하나를 PM, Developer, Reviewer 세 pane으로 나눈다.
+먼저 PM에게 작업을 지시한다. 현재 역할이 응답 마지막에 handoff 블록을 만들면
+`Ctrl+b Enter`를 눌러 다음 역할로 전달한다.
+
+```text
+PM → Developer → Reviewer → PM
+```
+
+`Ctrl+b Enter`를 다른 tmux 기능이 이미 사용 중이면 AtCode가 덮어쓰지 않고
+경고한다. 이때는 같은 동작을 명령으로 실행한다.
+
+```bash
+atcode next
+```
+
+선택한 pane을 크게 보거나 원래 화면으로 돌아가려면 `Ctrl+b z`를 누른다.
+
 tmux에서 detach한 뒤 상태 확인과 종료:
 
 ```bash
@@ -63,7 +80,7 @@ atcode status --project /mnt/d/project/SmileLRS
 
 ## 역할과 Adapter
 
-Phase 1은 다음 세 역할의 단일 Workflow를 사용한다.
+AtCode Runtime은 다음 세 역할의 단일 Workflow를 사용한다.
 
 ```text
 PM → Developer → Reviewer → PM
@@ -107,6 +124,15 @@ atcode config set roles.reviewer.adapter codex
 atcode config show
 ```
 
+기본 3-pane 대신 역할별 3-window 화면을 사용하려면 설정 후 세션을 다시 만든다.
+실행 중인 화면을 즉시 변환하지는 않는다.
+
+```bash
+atcode config set layout windows
+atcode stop
+atcode start
+```
+
 전역 기본값 변경:
 
 ```bash
@@ -125,6 +151,7 @@ Adapter는 각 CLI의 공식 대화형 최초 Prompt 규약을 사용한다.
 atcode init
 atcode start
 atcode attach
+atcode next
 atcode stop
 atcode status
 atcode doctor
@@ -132,21 +159,46 @@ atcode config
 atcode list
 ```
 
-## Phase 2 방향
+## 전달 상태와 재시작
 
-Phase 2는 기능을 넓히기보다 다음 한 가지 개발 루프를 먼저 완성한다.
+`atcode status`는 tmux 세션과 함께 현재 workflow 역할, round, 최근 transfer와
+delivery 상태를 표시한다.
 
-```text
-PM /next → Developer /next → Reviewer /next → PM
+```bash
+atcode status
 ```
 
-- 프로젝트당 활성 작업 하나
-- `/next`를 통한 역할 결과 전달
-- 선택적인 3-pane 동시 보기
-- 병렬 이득이 확인된 경우에만 승인 기반 임시 Developer Team
+컴퓨터를 재부팅하거나 tmux 세션이 사라진 뒤 `atcode start`를 실행하면 역할 Prompt를
+다시 만들고 현재 역할에 최신 전달 내용 하나를 복원한다. 전체 대화 내용은 복원하지
+않는다.
+
+이전 workflow를 버리고 처음부터 시작하려면 먼저 세션을 종료한 뒤 `--fresh`를
+사용한다. 현재 상태를 보여준 뒤 `y` 또는 `yes`를 입력해야 초기화된다.
+
+```bash
+atcode stop
+atcode start --fresh
+```
+
+역할 Prompt 파일에는 역할 계약만 저장되며 handoff가 계속 쌓이지 않는다. 현재
+workflow는 `workspace/workflow.json`, 최신 handoff 하나는
+`workspace/handoff.json`에 저장된다. 이 파일을 포함한 모든 Runtime 데이터는
+`ATCODE_HOME` 아래에만 존재한다.
+
+전달은 장애 복구를 위해 같은 transfer ID가 다시 입력될 수 있다. 역할 Prompt는
+이미 처리한 transfer ID의 작업을 중복 수행하지 않도록 지시한다.
+
+## 현재 범위
+
+- 프로젝트당 활성 workflow 하나
+- PM → Developer → Reviewer → PM 고정 순서
+- Reviewer 승인 시 완료, 반려 시 PM을 거쳐 Developer 재작업 round 증가
+- 기본 3-pane과 선택형 3-window 화면
+- 사용자 확인을 위한 `Ctrl+b Enter` 또는 `atcode next`
 
 자유 역할 편집, 범용 Task Queue, Workflow DSL, 자동 Agent 대화, Database,
-Web UI는 실제 필요가 확인될 때까지 추가하지 않는다.
+Web UI, 전체 대화 이력 저장, 자동 병렬 Team은 실제 필요가 확인될 때까지 추가하지
+않는다.
 
 ## 제거
 
@@ -175,3 +227,4 @@ bash -n bin/atcode scripts/install.sh scripts/uninstall.sh
 - `docs/superpowers/specs/2026-07-15-atcode-phase1-design.md`
 - `docs/superpowers/specs/2026-07-15-three-role-runtime-design.md`
 - `docs/superpowers/specs/2026-07-15-guided-wsl-installer-design.md`
+- `docs/superpowers/specs/2026-07-15-phase2-relay-workflow-design.md`

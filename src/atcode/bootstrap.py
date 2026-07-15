@@ -176,6 +176,8 @@ def build_container(
         backend=terminal_backend,
         prompts=prompts,
         state_store=state_store,
+        workflow_store=workflow_store,
+        project_lock=project_lock,
     )
     return AppContainer(
         paths,
