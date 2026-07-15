@@ -83,3 +83,29 @@ class LaunchSpec:
     executable: str
     arguments: tuple[str, ...] = ()
     environment: Mapping[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class WindowSpec:
+    name: str
+    cwd: Path
+    launch: LaunchSpec
+
+
+@dataclass(frozen=True)
+class SessionSpec:
+    session_name: str
+    project_root: Path
+    windows: tuple[WindowSpec, ...]
+
+
+@dataclass(frozen=True)
+class SessionSnapshot:
+    session_name: str
+    exists: bool
+    windows: tuple[str, ...] = ()
+    active_window: str | None = None
+
+    @classmethod
+    def stopped(cls, session_name: str) -> "SessionSnapshot":
+        return cls(session_name=session_name, exists=False)
