@@ -97,14 +97,23 @@ def test_role_templates_embed_model_neutral_methods() -> None:
         for role in Role
     }
 
-    assert "가정" in templates[Role.PM] and "완료 조건" in templates[Role.PM]
-    assert "재작업" in templates[Role.PM] and "최종 요약" in templates[Role.PM]
+    pm = templates[Role.PM]
+    reviewer = templates[Role.REVIEWER]
+
+    assert "가정" in pm and "완료 조건" in pm
+    assert "재작업" in pm and "최종 요약" in pm
+    assert "사실" in pm and "명령" in pm and "경로" in pm and "한국어" in pm
     assert "실패하는 테스트" in templates[Role.DEVELOPER]
-    assert "과설계" in templates[Role.REVIEWER]
-    assert "미검증" in templates[Role.TESTER]
-    assert "사실, 주장, 수치" in templates[Role.DOCS]
-    assert (
-        "{{ATCODE_HOME}}/projects/{{PROJECT_ID}}/workspace"
-        in templates[Role.DOCS]
-    )
+    assert "과설계" in reviewer
+    assert "정상" in reviewer and "오류" in reviewer and "경계" in reviewer
+    assert "회귀" in reviewer and "미검증" in reviewer
+    assert "실행 명령" in reviewer and "실제 출력" in reviewer
     assert not any("$" in text for text in templates.values())
+
+
+def test_prompt_directory_has_only_active_roles() -> None:
+    assert {path.stem for path in (REPO_ROOT / "prompts").glob("*.md")} == {
+        "pm",
+        "developer",
+        "reviewer",
+    }
