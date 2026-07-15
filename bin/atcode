@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ATCODE_ENTRY="$(readlink -f -- "${BASH_SOURCE[0]}")"
+ATCODE_ROOT="$(cd -- "$(dirname -- "${ATCODE_ENTRY}")/.." && pwd -P)"
+export ATCODE_HOME="${ATCODE_HOME:-${ATCODE_ROOT}/data}"
+export PYTHONPATH="${ATCODE_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+
+exec "${ATCODE_PYTHON:-python3}" -m atcode "$@"
