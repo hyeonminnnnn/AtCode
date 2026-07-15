@@ -196,6 +196,15 @@ class WorkflowState:
 
 
 @dataclass(frozen=True)
+class TransferResult:
+    transfer_id: int
+    from_role: Role
+    to_role: Role
+    workflow_status: WorkflowStatus
+    focus_warning: str | None = None
+
+
+@dataclass(frozen=True)
 class RuntimeState:
     project_id: str
     backend: str
