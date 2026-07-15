@@ -1,4 +1,4 @@
-"""tmux implementation of the Phase 1 Terminal Backend contract."""
+"""tmux implementation of the Terminal Backend contract."""
 
 from __future__ import annotations
 
@@ -10,10 +10,13 @@ from atcode.domain.errors import AtCodeError
 from atcode.domain.models import (
     DiagnosticLevel,
     DiagnosticResult,
+    Layout,
     LaunchSpec,
+    Role,
+    RoleEndpoint,
+    RoleSpec,
     SessionSnapshot,
     SessionSpec,
-    WindowSpec,
 )
 from atcode.infrastructure.process import CommandResult, SubprocessRunner
 
@@ -60,8 +63,14 @@ class TmuxBackend:
 
     def create_session(self, spec: SessionSpec) -> None:
         self._validate_identifier(spec.session_name, "session")
-        if not spec.windows:
-            raise AtCodeError("SESSION_SPEC_INVALID", "At least one window is required.")
+        if (
+            {item.role for item in spec.roles} != set(Role)
+            or len(spec.roles) != len(Role)
+        ):
+            raise AtCodeError(
+                "SESSION_SPEC_INVALID",
+                "Exactly one endpoint for every role is required.",
+            )
         if self.session_exists(spec.session_name):
             raise AtCodeError(
                 "TMUX_SESSION_EXISTS",
@@ -70,26 +79,21 @@ class TmuxBackend:
 
         created = False
         try:
-            first, *remaining = spec.windows
-            self._create_first_window(spec.session_name, first)
             created = True
-            for window in remaining:
-                self._create_window(spec.session_name, window)
-            self._run_checked(
-                (
-                    "tmux",
-                    "select-window",
-                    "-t",
-                    f"={spec.session_name}:{first.name}",
-                ),
-                "select-window",
-            )
+            if spec.layout is Layout.PANES:
+                self._create_panes_session(spec)
+            else:
+                self._create_windows_session(spec)
             snapshot = self.inspect_session(spec.session_name)
-            expected_windows = {window.name for window in spec.windows}
-            if set(snapshot.windows) != expected_windows:
+            actual_roles = {endpoint.role for endpoint in snapshot.endpoints}
+            if (
+                actual_roles != set(Role)
+                or len(snapshot.endpoints) != len(Role)
+                or snapshot.layout is not spec.layout
+            ):
                 raise AtCodeError(
-                    "TMUX_WINDOW_SET_INVALID",
-                    "tmux did not create every requested role window.",
+                    "TMUX_ENDPOINT_SET_INVALID",
+                    "tmux did not create every requested role endpoint.",
                 )
         except AtCodeError as error:
             if created:
@@ -109,24 +113,28 @@ class TmuxBackend:
         result = self._run_checked(
             (
                 "tmux",
-                "list-windows",
+                "list-panes",
+                "-s",
                 "-t",
                 f"={session_name}",
                 "-F",
-                "#{window_name}\t#{window_active}",
+                "#{@atcode_role}\t#{window_name}\t#{pane_id}\t#{pane_active}",
             ),
-            "list-windows",
+            "list-panes",
         )
-        windows: list[str] = []
-        active: str | None = None
+        endpoints: list[RoleEndpoint] = []
         for line in result.stdout.splitlines():
-            name, separator, is_active = line.partition("\t")
-            if not separator:
-                raise AtCodeError("TMUX_OUTPUT_INVALID", "Invalid tmux window output.")
-            windows.append(name)
-            if is_active == "1":
-                active = name
-        return SessionSnapshot(session_name, True, tuple(windows), active)
+            fields = line.split("\t")
+            if len(fields) != 4:
+                raise AtCodeError("TMUX_OUTPUT_INVALID", "Invalid tmux pane output.")
+            role_name, window, pane, is_active = fields
+            try:
+                role = Role(role_name)
+            except ValueError:
+                continue
+            endpoints.append(RoleEndpoint(role, window, pane, is_active == "1"))
+        layout = self._detect_layout(endpoints)
+        return SessionSnapshot(session_name, True, layout, tuple(endpoints))
 
     def attach_session(self, session_name: str) -> None:
         self._validate_identifier(session_name, "session")
@@ -145,8 +153,101 @@ class TmuxBackend:
                 "kill-session",
             )
 
-    def _create_first_window(self, session_name: str, window: WindowSpec) -> None:
-        self._validate_identifier(window.name, "window")
+    def _create_panes_session(self, spec: SessionSpec) -> None:
+        by_role = {item.role: item for item in spec.roles}
+        first = by_role[Role.PM]
+        self._create_first_role(spec.session_name, "team", first)
+        self._set_role_metadata(
+            f"={spec.session_name}:team.0",
+            Role.PM,
+        )
+        for role in (Role.DEVELOPER, Role.REVIEWER):
+            item = by_role[role]
+            result = self._run_checked(
+                (
+                    "tmux",
+                    "split-window",
+                    "-d",
+                    "-P",
+                    "-F",
+                    "#{pane_id}",
+                    "-t",
+                    f"={spec.session_name}:team",
+                    "-c",
+                    str(item.cwd),
+                    self._launch_command(item.launch),
+                ),
+                "split-window",
+            )
+            pane_id = result.stdout.strip()
+            if not pane_id:
+                raise AtCodeError("TMUX_OUTPUT_INVALID", "tmux pane id is missing.")
+            self._set_role_metadata(pane_id, role)
+        target = f"={spec.session_name}:team"
+        self._run_checked(
+            ("tmux", "select-layout", "-t", target, "tiled"),
+            "select-layout",
+        )
+        self._run_checked(
+            (
+                "tmux",
+                "set-option",
+                "-w",
+                "-t",
+                target,
+                "pane-border-status",
+                "top",
+            ),
+            "pane-border-status",
+        )
+        self._run_checked(
+            (
+                "tmux",
+                "set-option",
+                "-w",
+                "-t",
+                target,
+                "pane-border-format",
+                " #{@atcode_role} ",
+            ),
+            "pane-border-format",
+        )
+        self._run_checked(
+            ("tmux", "select-pane", "-t", f"={spec.session_name}:team.0"),
+            "select-pane",
+        )
+
+    def _create_windows_session(self, spec: SessionSpec) -> None:
+        by_role = {item.role: item for item in spec.roles}
+        first = by_role[Role.PM]
+        self._create_first_role(spec.session_name, Role.PM.value, first)
+        self._set_role_metadata(
+            f"={spec.session_name}:{Role.PM.value}.0",
+            Role.PM,
+        )
+        for role in (Role.DEVELOPER, Role.REVIEWER):
+            self._create_window(spec.session_name, by_role[role])
+            self._set_role_metadata(
+                f"={spec.session_name}:{role.value}.0",
+                role,
+            )
+        self._run_checked(
+            (
+                "tmux",
+                "select-window",
+                "-t",
+                f"={spec.session_name}:{Role.PM.value}",
+            ),
+            "select-window",
+        )
+
+    def _create_first_role(
+        self,
+        session_name: str,
+        window_name: str,
+        role_spec: RoleSpec,
+    ) -> None:
+        self._validate_identifier(window_name, "window")
         self._run_checked(
             (
                 "tmux",
@@ -155,16 +256,17 @@ class TmuxBackend:
                 "-s",
                 session_name,
                 "-n",
-                window.name,
+                window_name,
                 "-c",
-                str(window.cwd),
-                self._launch_command(window.launch),
+                str(role_spec.cwd),
+                self._launch_command(role_spec.launch),
             ),
             "new-session",
         )
 
-    def _create_window(self, session_name: str, window: WindowSpec) -> None:
-        self._validate_identifier(window.name, "window")
+    def _create_window(self, session_name: str, role_spec: RoleSpec) -> None:
+        window_name = role_spec.role.value
+        self._validate_identifier(window_name, "window")
         self._run_checked(
             (
                 "tmux",
@@ -173,13 +275,37 @@ class TmuxBackend:
                 "-t",
                 f"={session_name}",
                 "-n",
-                window.name,
+                window_name,
                 "-c",
-                str(window.cwd),
-                self._launch_command(window.launch),
+                str(role_spec.cwd),
+                self._launch_command(role_spec.launch),
             ),
             "new-window",
         )
+
+    def _set_role_metadata(self, pane_target: str, role: Role) -> None:
+        self._run_checked(
+            (
+                "tmux",
+                "set-option",
+                "-p",
+                "-t",
+                pane_target,
+                "@atcode_role",
+                role.value,
+            ),
+            "set-role-metadata",
+        )
+
+    @staticmethod
+    def _detect_layout(endpoints: list[RoleEndpoint]) -> Layout | None:
+        if not endpoints:
+            return None
+        if all(endpoint.window == "team" for endpoint in endpoints):
+            return Layout.PANES
+        if all(endpoint.window == endpoint.role.value for endpoint in endpoints):
+            return Layout.WINDOWS
+        return None
 
     @staticmethod
     def _launch_command(spec: LaunchSpec) -> str:

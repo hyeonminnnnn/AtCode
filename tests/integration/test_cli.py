@@ -8,7 +8,9 @@ from atcode.cli import run
 from atcode.domain.models import (
     DiagnosticLevel,
     DiagnosticResult,
+    Layout,
     LaunchSpec,
+    RoleEndpoint,
     SessionSnapshot,
 )
 from atcode.infrastructure.adapters.registry import AdapterRegistry
@@ -39,11 +41,20 @@ class FakeBackend:
         return self.snapshots.get(name, SessionSnapshot.stopped(name))
 
     def create_session(self, spec):
+        window = "team" if spec.layout is Layout.PANES else None
         self.snapshots[spec.session_name] = SessionSnapshot(
             spec.session_name,
             True,
-            tuple(window.name for window in spec.windows),
-            "pm",
+            spec.layout,
+            tuple(
+                RoleEndpoint(
+                    item.role,
+                    window or item.role.value,
+                    f"%{index}",
+                    index == 1,
+                )
+                for index, item in enumerate(spec.roles, start=1)
+            ),
         )
 
     def terminate_session(self, name):

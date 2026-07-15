@@ -93,6 +93,11 @@ class DiagnosticsService:
             snapshot = self._backend.inspect_session(
                 f"atcode-{project.project_id}"
             )
+            expected_layout = (
+                state.layout
+                if state is not None
+                else self._configuration.effective(project).layout
+            )
         except AtCodeError as error:
             return DiagnosticResult(
                 "state/session",
@@ -103,7 +108,11 @@ class DiagnosticsService:
 
         if not snapshot.exists:
             actual = Lifecycle.STOPPED
-        elif {role.value for role in Role}.issubset(snapshot.windows):
+        elif (
+            {endpoint.role for endpoint in snapshot.endpoints} == set(Role)
+            and len(snapshot.endpoints) == len(Role)
+            and snapshot.layout is expected_layout
+        ):
             actual = Lifecycle.RUNNING
         else:
             actual = Lifecycle.DEGRADED

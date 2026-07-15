@@ -8,10 +8,12 @@ from atcode.domain.errors import AtCodeError
 from atcode.domain.models import (
     DiagnosticLevel,
     DiagnosticResult,
+    Layout,
     Lifecycle,
     Project,
     Role,
     RoleAssignment,
+    RoleEndpoint,
     RoleRuntime,
     RuntimeConfig,
     RuntimeState,
@@ -129,3 +131,35 @@ def test_doctor_warns_when_persisted_state_disagrees_with_tmux(
 
     consistency = next(item for item in results if item.name == "state/session")
     assert consistency.level is DiagnosticLevel.WARN
+
+
+def test_doctor_accepts_matching_role_endpoints_and_layout(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    state = RuntimeState(
+        project.project_id,
+        "tmux",
+        f"atcode-{project.project_id}",
+        Lifecycle.RUNNING,
+        "started",
+        None,
+        tuple(
+            RoleRuntime(role, "codex", f"%{index}")
+            for index, role in enumerate(Role, 1)
+        ),
+        layout=Layout.PANES,
+    )
+    snapshot = SessionSnapshot(
+        f"atcode-{project.project_id}",
+        True,
+        Layout.PANES,
+        tuple(
+            RoleEndpoint(role, "team", f"%{index}", index == 1)
+            for index, role in enumerate(Role, 1)
+        ),
+    )
+    service = make_service(tmp_path, state=state, snapshot=snapshot)
+
+    results = service.run(project)
+
+    consistency = next(item for item in results if item.name == "state/session")
+    assert consistency.level is DiagnosticLevel.PASS

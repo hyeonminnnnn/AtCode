@@ -17,7 +17,7 @@ from atcode.domain.models import (
     RuntimeState,
     SessionSnapshot,
     SessionSpec,
-    WindowSpec,
+    RoleSpec,
 )
 from atcode.ports.backend import TerminalBackend
 from atcode.ports.storage import StateStore
@@ -54,7 +54,7 @@ class SessionService:
                 if state.status is Lifecycle.DEGRADED:
                     raise AtCodeError(
                         "SESSION_DEGRADED",
-                        "The existing project session is missing role windows.",
+                        "The existing project session has invalid role endpoints.",
                         hint="Run atcode stop, then atcode start.",
                     )
                 return state
@@ -67,7 +67,7 @@ class SessionService:
                     hint=backend_probe.hint,
                 )
 
-            windows: list[WindowSpec] = []
+            roles: list[RoleSpec] = []
             for role in Role:
                 rendered = self._prompts.render(self._project, role)
                 assignment = config.roles[role]
@@ -85,12 +85,17 @@ class SessionService:
                     rendered,
                     self._atcode_home,
                 )
-                windows.append(
-                    WindowSpec(role.value, self._project.root, adapter.build_launch(context))
+                roles.append(
+                    RoleSpec(role, self._project.root, adapter.build_launch(context))
                 )
 
             self._backend.create_session(
-                SessionSpec(self._session_name, self._project.root, tuple(windows))
+                SessionSpec(
+                    self._session_name,
+                    self._project.root,
+                    config.layout,
+                    tuple(roles),
+                )
             )
             state = self._state_from_snapshot(
                 self._backend.inspect_session(self._session_name),
@@ -144,11 +149,15 @@ class SessionService:
     ) -> RuntimeState:
         previous = self._state_store.read(self._project)
         now = datetime.now(timezone.utc).isoformat()
-        expected = {role.value for role in Role}
-        actual = set(snapshot.windows)
+        expected = set(Role)
+        actual = {endpoint.role for endpoint in snapshot.endpoints}
         if not snapshot.exists:
             lifecycle = Lifecycle.STOPPED
-        elif actual == expected:
+        elif (
+            actual == expected
+            and len(snapshot.endpoints) == len(Role)
+            and snapshot.layout is config.layout
+        ):
             lifecycle = Lifecycle.RUNNING
         else:
             lifecycle = Lifecycle.DEGRADED
@@ -168,6 +177,19 @@ class SessionService:
                 )
             ),
             roles=tuple(
-                RoleRuntime(role, config.roles[role].adapter, role.value) for role in Role
+                RoleRuntime(
+                    role,
+                    config.roles[role].adapter,
+                    next(
+                        (
+                            endpoint.pane
+                            for endpoint in snapshot.endpoints
+                            if endpoint.role is role
+                        ),
+                        role.value,
+                    ),
+                )
+                for role in Role
             ),
+            layout=config.layout,
         )

@@ -109,8 +109,8 @@ class LaunchSpec:
 
 
 @dataclass(frozen=True)
-class WindowSpec:
-    name: str
+class RoleSpec:
+    role: Role
     cwd: Path
     launch: LaunchSpec
 
@@ -119,15 +119,28 @@ class WindowSpec:
 class SessionSpec:
     session_name: str
     project_root: Path
-    windows: tuple[WindowSpec, ...]
+    layout: Layout
+    roles: tuple[RoleSpec, ...]
+
+
+@dataclass(frozen=True)
+class RoleEndpoint:
+    role: Role
+    window: str
+    pane: str
+    active: bool = False
 
 
 @dataclass(frozen=True)
 class SessionSnapshot:
     session_name: str
     exists: bool
-    windows: tuple[str, ...] = ()
-    active_window: str | None = None
+    layout: Layout | None = None
+    endpoints: tuple[RoleEndpoint, ...] = ()
+
+    @property
+    def active_role(self) -> Role | None:
+        return next((item.role for item in self.endpoints if item.active), None)
 
     @classmethod
     def stopped(cls, session_name: str) -> "SessionSnapshot":

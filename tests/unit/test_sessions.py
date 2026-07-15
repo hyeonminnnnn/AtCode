@@ -9,12 +9,14 @@ from atcode.domain.errors import AtCodeError
 from atcode.domain.models import (
     DiagnosticLevel,
     DiagnosticResult,
+    Layout,
     LaunchSpec,
     Lifecycle,
     Project,
     RenderedPrompt,
     Role,
     RoleAssignment,
+    RoleEndpoint,
     RuntimeConfig,
     SessionSnapshot,
 )
@@ -25,6 +27,7 @@ class FakeConfig:
         return RuntimeConfig(
             "tmux",
             {role: RoleAssignment("codex") for role in Role},
+            Layout.PANES,
         )
 
 
@@ -73,8 +76,16 @@ class FakeBackend:
 
     def create_session(self, spec):
         self.created_specs.append(spec)
-        windows = tuple(window.name for window in spec.windows)
-        self.snapshot = SessionSnapshot(spec.session_name, True, windows, "pm")
+        endpoints = tuple(
+            RoleEndpoint(role_spec.role, "team", f"%{index}", index == 1)
+            for index, role_spec in enumerate(spec.roles, start=1)
+        )
+        self.snapshot = SessionSnapshot(
+            spec.session_name,
+            True,
+            spec.layout,
+            endpoints,
+        )
 
     def terminate_session(self, name):
         self.terminated.append(name)
@@ -140,7 +151,7 @@ def test_start_preflights_all_adapters_before_backend_create(tmp_path: Path) -> 
     assert backend.created_specs == []
 
 
-def test_start_creates_three_role_windows_and_persists_running_state(
+def test_start_creates_three_role_endpoints_and_persists_running_state(
     tmp_path: Path,
 ) -> None:
     service, backend, state_store = make_service(tmp_path)
@@ -148,11 +159,17 @@ def test_start_creates_three_role_windows_and_persists_running_state(
     state = service.start()
 
     assert state.status is Lifecycle.RUNNING
-    assert tuple(window.name for window in backend.created_specs[0].windows) == (
+    assert tuple(role.role for role in backend.created_specs[0].roles) == (
+        Role.PM,
+        Role.DEVELOPER,
+        Role.REVIEWER,
+    )
+    assert tuple(role.role.value for role in backend.created_specs[0].roles) == (
         "pm",
         "developer",
         "reviewer",
     )
+    assert backend.created_specs[0].layout is Layout.PANES
     assert state_store.states[-1] == state
 
 
@@ -171,8 +188,8 @@ def test_start_rejects_an_existing_legacy_session(tmp_path: Path) -> None:
     backend.snapshot = SessionSnapshot(
         "atcode-target-1234567890",
         True,
-        ("pm", "developer", "reviewer", "tester", "docs"),
-        "pm",
+        None,
+        (),
     )
 
     with pytest.raises(AtCodeError, match="SESSION_DEGRADED"):
@@ -207,8 +224,11 @@ def test_status_is_degraded_when_role_window_is_missing(tmp_path: Path) -> None:
     backend.snapshot = SessionSnapshot(
         "atcode-target-1234567890",
         True,
-        ("pm", "developer"),
-        "pm",
+        Layout.PANES,
+        (
+            RoleEndpoint(Role.PM, "team", "%1", True),
+            RoleEndpoint(Role.DEVELOPER, "team", "%2"),
+        ),
     )
 
     state = service.status()
@@ -221,8 +241,11 @@ def test_status_is_degraded_when_legacy_windows_are_extra(tmp_path: Path) -> Non
     backend.snapshot = SessionSnapshot(
         "atcode-target-1234567890",
         True,
-        ("pm", "developer", "reviewer", "tester", "docs"),
-        "pm",
+        None,
+        tuple(
+            RoleEndpoint(role, role.value, f"%{index}", index == 1)
+            for index, role in enumerate(Role, start=1)
+        ),
     )
 
     state = service.status()
