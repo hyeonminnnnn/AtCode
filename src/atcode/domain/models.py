@@ -24,6 +24,11 @@ class Role(str, Enum):
     REVIEWER = "reviewer"
 
 
+class Layout(str, Enum):
+    PANES = "panes"
+    WINDOWS = "windows"
+
+
 @dataclass(frozen=True)
 class RoleAssignment:
     adapter: str
@@ -33,11 +38,13 @@ class RoleAssignment:
 class RuntimeConfig:
     backend: str
     roles: Mapping[Role, RoleAssignment]
+    layout: Layout = Layout.PANES
 
     def to_dict(self) -> dict[str, object]:
         return {
             "schemaVersion": 1,
             "backend": self.backend,
+            "layout": self.layout.value,
             "roles": {
                 role.value: {"adapter": self.roles[role].adapter} for role in Role
             },
@@ -120,7 +127,7 @@ class Lifecycle(str, Enum):
 class RoleRuntime:
     role: Role
     adapter: str
-    window: str
+    endpoint: str
 
 
 @dataclass(frozen=True)
@@ -133,3 +140,4 @@ class RuntimeState:
     stopped_at: str | None
     roles: tuple[RoleRuntime, ...]
     last_error: str | None = None
+    layout: Layout = Layout.PANES

@@ -6,12 +6,13 @@ from copy import deepcopy
 from typing import Any
 
 from atcode.domain.errors import AtCodeError
-from atcode.domain.models import Project, Role, RoleAssignment, RuntimeConfig
+from atcode.domain.models import Layout, Project, Role, RoleAssignment, RuntimeConfig
 from atcode.ports.storage import ConfigurationStore
 
 _DEFAULT: dict[str, Any] = {
     "schemaVersion": 1,
     "backend": "tmux",
+    "layout": "panes",
     "roles": {
         "pm": {"adapter": "codex"},
         "developer": {"adapter": "codex"},
@@ -51,6 +52,7 @@ class ConfigurationService:
                     role: RoleAssignment(merged["roles"][role.value]["adapter"])
                     for role in Role
                 },
+                layout=Layout(merged["layout"]),
             )
         except AtCodeError:
             raise
@@ -67,6 +69,8 @@ class ConfigurationService:
         config = self.effective(project)
         if key == "backend":
             return config.backend
+        if key == "layout":
+            return config.layout.value
         role = Role(key.split(".")[1])
         return config.roles[role].adapter
 
@@ -81,8 +85,8 @@ class ConfigurationService:
         self._validate_key(key)
         self._validate_value(key, value)
         current = self._read_target(project, global_scope)
-        if key == "backend":
-            current["backend"] = value
+        if key in {"backend", "layout"}:
+            current[key] = value
         else:
             role = key.split(".")[1]
             current.setdefault("roles", {}).setdefault(role, {})["adapter"] = value
@@ -98,8 +102,8 @@ class ConfigurationService:
     ) -> None:
         self._validate_key(key)
         current = self._read_target(project, global_scope)
-        if key == "backend":
-            current.pop("backend", None)
+        if key in {"backend", "layout"}:
+            current.pop(key, None)
         else:
             role = key.split(".")[1]
             roles = current.get("roles", {})
@@ -147,7 +151,9 @@ class ConfigurationService:
             self._store.write_project(project, value)
 
     def _validate_key(self, key: str) -> None:
-        valid = {"backend"} | {f"roles.{role.value}.adapter" for role in Role}
+        valid = {"backend", "layout"} | {
+            f"roles.{role.value}.adapter" for role in Role
+        }
         if key not in valid:
             raise AtCodeError(
                 "CONFIG_KEY_INVALID",
@@ -156,7 +162,12 @@ class ConfigurationService:
             )
 
     def _validate_value(self, key: str, value: str) -> None:
-        allowed = self._backends if key == "backend" else self._adapters
+        if key == "backend":
+            allowed = self._backends
+        elif key == "layout":
+            allowed = {layout.value for layout in Layout}
+        else:
+            allowed = self._adapters
         if value not in allowed:
             raise AtCodeError(
                 "CONFIG_VALUE_INVALID",
@@ -170,11 +181,14 @@ class ConfigurationService:
         if value.get("schemaVersion") != 1 or set(value) - {
             "schemaVersion",
             "backend",
+            "layout",
             "roles",
         }:
             raise AtCodeError("CONFIG_INVALID", "Invalid configuration object.")
         if "backend" in value:
             self._validate_value("backend", value["backend"])
+        if "layout" in value:
+            self._validate_value("layout", value["layout"])
         roles = value.get("roles", {})
         if not isinstance(roles, dict):
             raise AtCodeError("CONFIG_INVALID", "roles must be an object.")

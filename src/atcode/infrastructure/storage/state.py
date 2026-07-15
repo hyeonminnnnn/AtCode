@@ -9,6 +9,7 @@ from typing import BinaryIO, Iterator
 
 from atcode.domain.errors import AtCodeError
 from atcode.domain.models import (
+    Layout,
     Lifecycle,
     Project,
     Role,
@@ -30,7 +31,8 @@ class JsonStateStore:
             return None
         try:
             value = read_json(path)
-            if value.get("schemaVersion") != 1:
+            schema_version = value.get("schemaVersion")
+            if schema_version not in {1, 2}:
                 raise ValueError("unsupported schemaVersion")
             if value.get("projectId") != project.project_id:
                 raise ValueError("state projectId does not match its directory")
@@ -38,10 +40,12 @@ class JsonStateStore:
             for item in value["roles"]:
                 role_name = item["role"]
                 adapter = item["adapter"]
-                window = item["window"]
+                endpoint = (
+                    item["window"] if schema_version == 1 else item["endpoint"]
+                )
                 if role_name in _LEGACY_ROLES:
                     continue
-                roles.append(RoleRuntime(Role(role_name), adapter, window))
+                roles.append(RoleRuntime(Role(role_name), adapter, endpoint))
             return RuntimeState(
                 project_id=value["projectId"],
                 backend=value["backend"],
@@ -51,6 +55,11 @@ class JsonStateStore:
                 stopped_at=value.get("stoppedAt"),
                 roles=tuple(roles),
                 last_error=value.get("lastError"),
+                layout=(
+                    Layout.WINDOWS
+                    if schema_version == 1
+                    else Layout(value["layout"])
+                ),
             )
         except (KeyError, OSError, TypeError, ValueError) as error:
             raise AtCodeError(
@@ -63,18 +72,19 @@ class JsonStateStore:
         write_json_atomic(
             self._state_path(project),
             {
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "projectId": state.project_id,
                 "backend": state.backend,
                 "backendSession": state.session_name,
                 "status": state.status.value,
+                "layout": state.layout.value,
                 "startedAt": state.started_at,
                 "stoppedAt": state.stopped_at,
                 "roles": [
                     {
                         "role": item.role.value,
                         "adapter": item.adapter,
-                        "window": item.window,
+                        "endpoint": item.endpoint,
                     }
                     for item in state.roles
                 ],
