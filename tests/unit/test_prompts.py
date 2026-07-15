@@ -86,7 +86,7 @@ def test_role_template_has_operating_contract(role: Role) -> None:
     assert "{{PROJECT_ID}}" in text
     assert "{{PROJECT_ROOT}}" in text
     assert "{{ATCODE_HOME}}" in text
-    assert "Phase 1" in text
+    assert "AtCode Runtime" in text
 
 
 def test_role_templates_embed_model_neutral_methods() -> None:
@@ -117,3 +117,33 @@ def test_prompt_directory_has_only_active_roles() -> None:
         "developer",
         "reviewer",
     }
+
+
+def test_role_templates_define_handoff_protocol() -> None:
+    templates = {
+        role: (REPO_ROOT / "prompts" / f"{role.value}.md").read_text(
+            encoding="utf-8"
+        )
+        for role in Role
+    }
+
+    for text in templates.values():
+        assert "<ATCODE_HANDOFF>" in text
+        assert "</ATCODE_HANDOFF>" in text
+        assert "ATCODE_TRANSFER" in text
+        assert "중복" in text
+        assert "waiting" in text
+
+    assert "STATUS: ready" in templates[Role.PM]
+    assert "STATUS: ready" in templates[Role.DEVELOPER]
+    assert "STATUS: approved" in templates[Role.REVIEWER]
+    assert "STATUS: rejected" in templates[Role.REVIEWER]
+
+
+def test_waiting_role_must_not_emit_handoff() -> None:
+    for role in Role:
+        text = (REPO_ROOT / "prompts" / f"{role.value}.md").read_text(
+            encoding="utf-8"
+        )
+        assert "waiting" in text
+        assert "다음 역할용 handoff를 출력하지 않는다" in text
