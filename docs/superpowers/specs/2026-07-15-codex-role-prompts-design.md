@@ -1,5 +1,9 @@
 # AtCode Codex 기본 배정과 역할 Prompt 확장 설계
 
+> 역할 모델 변경: 이 문서의 Tester·Docs 독립 역할 관련 내용은
+> `2026-07-15-three-role-runtime-design.md`로 대체되었다. Tester 책임은
+> Reviewer에, Docs 책임은 PM에 병합한다.
+
 ## 1. 가정
 
 1. 현재 사용 가능한 AI CLI는 Codex뿐이다.

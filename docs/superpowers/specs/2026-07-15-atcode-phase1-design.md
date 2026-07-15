@@ -1,5 +1,9 @@
 # AtCode Phase 1 Design
 
+> 역할 모델 변경: 이 문서의 5역할 관련 내용은
+> `2026-07-15-three-role-runtime-design.md`로 대체되었다. 현재 Phase 1의 고정
+> 역할은 PM, Developer, Reviewer 세 개다.
+
 ## 1. Objective
 
 AtCode is an AI Team Runtime that runs multiple AI CLIs as a reusable development team. It manages the fixed Phase 1 roles PM, Developer, Reviewer, Tester, and Docs while remaining independent of any particular AI CLI or terminal backend.
