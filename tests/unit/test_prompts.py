@@ -98,6 +98,7 @@ def test_role_templates_embed_model_neutral_methods() -> None:
     }
 
     assert "가정" in templates[Role.PM] and "완료 조건" in templates[Role.PM]
+    assert "재작업" in templates[Role.PM] and "최종 요약" in templates[Role.PM]
     assert "실패하는 테스트" in templates[Role.DEVELOPER]
     assert "과설계" in templates[Role.REVIEWER]
     assert "미검증" in templates[Role.TESTER]

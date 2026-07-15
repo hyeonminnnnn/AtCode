@@ -116,6 +116,7 @@ def test_role_templates_embed_model_neutral_methods() -> None:
     }
 
     assert "가정" in templates[Role.PM] and "완료 조건" in templates[Role.PM]
+    assert "재작업" in templates[Role.PM] and "최종 요약" in templates[Role.PM]
     assert "실패하는 테스트" in templates[Role.DEVELOPER]
     assert "과설계" in templates[Role.REVIEWER]
     assert "미검증" in templates[Role.TESTER]
@@ -137,10 +138,10 @@ Expected: 새 공통 제목과 역할별 방법론 assertion이 FAIL한다.
 ```text
 # PM
 작업 문맥: 프로젝트 이름·ID·루트·ATCODE_HOME
-## 핵심 책임: 요구사항, 가정, 범위, 완료 조건, 작업 분할
-## 작업 방법: 가정 공개 → 명세 → 사용자 승인 → 의존성 기반 작업 분할 → 검증 정의
-## 산출물: 목표·범위·제외 범위·가정·완료 조건·작업 순서·검증 명령·주의사항
-## 완료 조건: 모호성 해소, 검증 가능한 완료 조건, 구현 가능한 작업 단위
+## 핵심 책임: 요구사항, 가정, 범위, 완료 조건, 작업 분할, 진행 판단, 재작업, 최종 요약
+## 작업 방법: 가정 공개 → 명세 → 사용자 승인 → 작업 분할 → 검증 정의 → 결과 대조 → 재작업 또는 마감
+## 산출물: 초기 Brief, 완료 조건별 진행 판정, 담당 역할별 재작업 지시, 검증 근거가 있는 최종 요약
+## 완료 조건: 모호성 해소, 검증 가능한 완료 조건, 구현 가능한 작업 단위, 모든 완료 조건 충족 후 마감
 ## 경계: 승인 전 구현 금지, 자동 전달 금지, AtCode 관리 파일 생성 금지
 ```
 
