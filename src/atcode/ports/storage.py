@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import AbstractContextManager
 from typing import Any, Protocol
 
-from atcode.domain.models import Project, RenderedPrompt, Role
+from atcode.domain.models import Project, RenderedPrompt, Role, RuntimeState
 
 
 class ProjectStore(Protocol):
@@ -39,3 +40,11 @@ class PromptStore(Protocol):
         role: Role,
         text: str,
     ) -> RenderedPrompt: ...
+
+
+class StateStore(Protocol):
+    def read(self, project: Project) -> RuntimeState | None: ...
+
+    def write(self, project: Project, state: RuntimeState) -> None: ...
+
+    def locked(self, project: Project) -> AbstractContextManager[None]: ...

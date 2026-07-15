@@ -109,3 +109,29 @@ class SessionSnapshot:
     @classmethod
     def stopped(cls, session_name: str) -> "SessionSnapshot":
         return cls(session_name=session_name, exists=False)
+
+
+class Lifecycle(str, Enum):
+    STOPPED = "stopped"
+    RUNNING = "running"
+    DEGRADED = "degraded"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class RoleRuntime:
+    role: Role
+    adapter: str
+    window: str
+
+
+@dataclass(frozen=True)
+class RuntimeState:
+    project_id: str
+    backend: str
+    session_name: str
+    status: Lifecycle
+    started_at: str | None
+    stopped_at: str | None
+    roles: tuple[RoleRuntime, ...]
+    last_error: str | None = None

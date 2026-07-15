@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from atcode.domain.errors import AtCodeError
+from atcode.domain.models import (
+    Lifecycle,
+    Project,
+    Role,
+    RoleRuntime,
+    RuntimeState,
+)
+from atcode.infrastructure.storage.state import JsonStateStore
+
+
+def make_project(tmp_path: Path) -> Project:
+    target = tmp_path / "target"
+    target.mkdir()
+    return Project("target-1234567890", "target", target, "created")
+
+
+def make_state(project: Project) -> RuntimeState:
+    return RuntimeState(
+        project_id=project.project_id,
+        backend="tmux",
+        session_name=f"atcode-{project.project_id}",
+        status=Lifecycle.RUNNING,
+        started_at="2026-07-15T00:00:00Z",
+        stopped_at=None,
+        roles=tuple(RoleRuntime(role, "codex", role.value) for role in Role),
+    )
+
+
+def test_state_round_trip_stays_under_runtime_home(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    store = JsonStateStore(runtime_home)
+    state = make_state(project)
+
+    store.write(project, state)
+
+    assert store.read(project) == state
+    assert not (project.root / "state.json").exists()
+    assert (
+        runtime_home / "projects" / project.project_id / "state.json"
+    ).is_file()
+
+
+def test_state_json_contains_no_prompt_or_user_task(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    store = JsonStateStore(runtime_home)
+    store.write(project, make_state(project))
+
+    value = json.loads(
+        (runtime_home / "projects" / project.project_id / "state.json").read_text()
+    )
+
+    assert "prompt" not in json.dumps(value).lower()
+    assert "task" not in json.dumps(value).lower()
+
+
+def test_unsupported_state_schema_is_rejected(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    path = runtime_home / "projects" / project.project_id / "state.json"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"schemaVersion": 99}', encoding="utf-8")
+
+    with pytest.raises(AtCodeError, match="STATE_INVALID"):
+        JsonStateStore(runtime_home).read(project)
+
+
+def test_lock_file_is_created_under_runtime_home(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    store = JsonStateStore(runtime_home)
+
+    with store.locked(project):
+        lock_path = runtime_home / "projects" / project.project_id / "state.lock"
+        assert lock_path.is_file()
