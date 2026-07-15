@@ -9,6 +9,8 @@ from atcode.domain.errors import AtCodeError
 from atcode.domain.models import Project, Role
 from atcode.infrastructure.storage.prompts import FilesystemPromptStore
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def make_project(tmp_path: Path) -> Project:
     root = tmp_path / "target"
@@ -64,3 +66,44 @@ def test_unknown_template_token_fails(tmp_path: Path) -> None:
 
     with pytest.raises(AtCodeError, match="PROMPT_TOKEN_UNKNOWN"):
         renderer.render(project, Role.DEVELOPER)
+
+
+@pytest.mark.parametrize("role", list(Role))
+def test_role_template_has_operating_contract(role: Role) -> None:
+    text = (REPO_ROOT / "prompts" / f"{role.value}.md").read_text(
+        encoding="utf-8"
+    )
+
+    for heading in (
+        "## 핵심 책임",
+        "## 작업 방법",
+        "## 산출물",
+        "## 완료 조건",
+        "## 경계",
+    ):
+        assert heading in text
+    assert "{{PROJECT_NAME}}" in text
+    assert "{{PROJECT_ID}}" in text
+    assert "{{PROJECT_ROOT}}" in text
+    assert "{{ATCODE_HOME}}" in text
+    assert "Phase 1" in text
+
+
+def test_role_templates_embed_model_neutral_methods() -> None:
+    templates = {
+        role: (REPO_ROOT / "prompts" / f"{role.value}.md").read_text(
+            encoding="utf-8"
+        )
+        for role in Role
+    }
+
+    assert "가정" in templates[Role.PM] and "완료 조건" in templates[Role.PM]
+    assert "실패하는 테스트" in templates[Role.DEVELOPER]
+    assert "과설계" in templates[Role.REVIEWER]
+    assert "미검증" in templates[Role.TESTER]
+    assert "사실, 주장, 수치" in templates[Role.DOCS]
+    assert (
+        "{{ATCODE_HOME}}/projects/{{PROJECT_ID}}/workspace"
+        in templates[Role.DOCS]
+    )
+    assert not any("$" in text for text in templates.values())
