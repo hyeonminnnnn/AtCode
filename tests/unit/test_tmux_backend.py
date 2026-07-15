@@ -271,6 +271,28 @@ def test_focus_role_selects_the_resolved_pane() -> None:
     assert runner.calls[-1].argv == ("tmux", "select-pane", "-t", "%3")
 
 
+def test_focus_role_selects_window_then_pane_for_windows_layout() -> None:
+    rows = (
+        "pm\tpm\t%1\t1\n"
+        "developer\tdeveloper\t%2\t0\n"
+        "reviewer\treviewer\t%3\t0\n"
+    )
+    runner = FakeRunner(
+        [(0, "", ""), (0, rows, ""), (0, "", ""), (0, "", "")]
+    )
+    backend = TmuxBackend(runner, {})
+
+    backend.focus_role("atcode-target-1234567890", Role.REVIEWER)
+
+    assert runner.calls[-2].argv == (
+        "tmux",
+        "select-window",
+        "-t",
+        "=atcode-target-1234567890:reviewer",
+    )
+    assert runner.calls[-1].argv == ("tmux", "select-pane", "-t", "%3")
+
+
 def test_existing_enter_binding_is_not_overwritten() -> None:
     runner = FakeRunner([(0, "bind-key -T prefix Enter display-menu\n", "")])
     backend = TmuxBackend(runner, {})

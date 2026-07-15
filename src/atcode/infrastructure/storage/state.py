@@ -16,6 +16,21 @@ from atcode.domain.models import (
 from atcode.infrastructure.storage.json_file import read_json, write_json_atomic
 
 _LEGACY_ROLES = frozenset({"tester", "docs"})
+_COMMON_KEYS = {
+    "schemaVersion",
+    "projectId",
+    "backend",
+    "backendSession",
+    "status",
+    "startedAt",
+    "stoppedAt",
+    "roles",
+    "lastError",
+}
+_ROLE_KEYS = {
+    1: {"role", "adapter", "window"},
+    2: {"role", "adapter", "endpoint"},
+}
 
 
 class JsonStateStore:
@@ -31,10 +46,22 @@ class JsonStateStore:
             schema_version = value.get("schemaVersion")
             if schema_version not in {1, 2}:
                 raise ValueError("unsupported schemaVersion")
+            expected_keys = _COMMON_KEYS | (
+                {"layout"} if schema_version == 2 else set()
+            )
+            if set(value) != expected_keys:
+                raise ValueError("unexpected state fields")
             if value.get("projectId") != project.project_id:
                 raise ValueError("state projectId does not match its directory")
+            if not isinstance(value["roles"], list):
+                raise ValueError("roles must be an array")
             roles: list[RoleRuntime] = []
             for item in value["roles"]:
+                if (
+                    not isinstance(item, dict)
+                    or set(item) != _ROLE_KEYS[schema_version]
+                ):
+                    raise ValueError("unexpected role fields")
                 role_name = item["role"]
                 adapter = item["adapter"]
                 endpoint = (
@@ -42,7 +69,17 @@ class JsonStateStore:
                 )
                 if role_name in _LEGACY_ROLES:
                     continue
-                roles.append(RoleRuntime(Role(role_name), adapter, endpoint))
+                role = Role(role_name)
+                if not isinstance(adapter, str) or not adapter:
+                    raise ValueError("invalid role adapter")
+                if endpoint != role.value:
+                    raise ValueError("invalid logical role endpoint")
+                roles.append(RoleRuntime(role, adapter, endpoint))
+            if (
+                {item.role for item in roles} != set(Role)
+                or len(roles) != len(Role)
+            ):
+                raise ValueError("state must contain every active role once")
             return RuntimeState(
                 project_id=value["projectId"],
                 backend=value["backend"],

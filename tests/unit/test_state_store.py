@@ -166,6 +166,34 @@ def test_unsupported_state_schema_is_rejected(tmp_path: Path) -> None:
         JsonStateStore(runtime_home).read(project)
 
 
+def test_schema_two_rejects_unknown_role_fields(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    store = JsonStateStore(runtime_home)
+    store.write(project, make_state(project))
+    path = runtime_home / "projects" / project.project_id / "state.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["roles"][0]["window"] = "pm"
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(AtCodeError, match="STATE_INVALID"):
+        store.read(project)
+
+
+def test_schema_two_rejects_unknown_top_level_fields(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    store = JsonStateStore(runtime_home)
+    store.write(project, make_state(project))
+    path = runtime_home / "projects" / project.project_id / "state.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["history"] = []
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(AtCodeError, match="STATE_INVALID"):
+        store.read(project)
+
+
 def test_lock_file_is_created_under_runtime_home(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     runtime_home = tmp_path / "runtime"

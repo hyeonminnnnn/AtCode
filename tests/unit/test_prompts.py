@@ -207,3 +207,43 @@ def test_resume_includes_handoff_only_for_current_role(tmp_path: Path) -> None:
     assert "MODE: waiting" in reviewer.text
     assert "build it" not in reviewer.text
     assert developer.path == rendered.path
+
+
+def test_startup_handoff_is_not_persisted_in_rendered_prompt_file(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    renderer, _runtime_home = make_renderer(
+        tmp_path,
+        "# Developer\nProject: {{PROJECT_NAME}}\n",
+    )
+    rendered = renderer.render(project, Role.DEVELOPER)
+    workflow = WorkflowState(
+        WorkflowStatus.ACTIVE,
+        Role.DEVELOPER,
+        1,
+        1,
+        {},
+        "time",
+    )
+    handoff = Handoff(
+        1,
+        Role.PM,
+        Role.DEVELOPER,
+        HandoffDecision.READY,
+        DeliveryState.DELIVERED,
+        "sha256:abc",
+        "SUMMARY:\nsecret handoff body",
+        "created",
+        "delivered",
+    )
+
+    startup = StartupPromptBuilder().build(
+        rendered,
+        Role.DEVELOPER,
+        workflow,
+        handoff,
+    )
+
+    assert "secret handoff body" in startup.text
+    assert "secret handoff body" not in rendered.path.read_text(encoding="utf-8")
