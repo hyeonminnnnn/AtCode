@@ -26,6 +26,16 @@ def make_service(tmp_path: Path) -> tuple[ConfigurationService, JsonConfiguratio
     return service, store
 
 
+def test_all_default_roles_use_codex(tmp_path: Path) -> None:
+    service, _store = make_service(tmp_path)
+
+    config = service.effective(None)
+
+    assert {role: config.roles[role].adapter for role in Role} == {
+        role: "codex" for role in Role
+    }
+
+
 def test_project_role_override_wins(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     service, store = make_service(tmp_path)

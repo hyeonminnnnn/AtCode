@@ -13,11 +13,11 @@ _DEFAULT: dict[str, Any] = {
     "schemaVersion": 1,
     "backend": "tmux",
     "roles": {
-        "pm": {"adapter": "claude"},
+        "pm": {"adapter": "codex"},
         "developer": {"adapter": "codex"},
-        "reviewer": {"adapter": "gemini"},
+        "reviewer": {"adapter": "codex"},
         "tester": {"adapter": "codex"},
-        "docs": {"adapter": "claude"},
+        "docs": {"adapter": "codex"},
     },
 }
 
