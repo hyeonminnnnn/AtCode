@@ -1,10 +1,10 @@
-"""Terminal Backend contract for Phase 1 session lifecycle."""
+"""Terminal Backend contract for session lifecycle and role relay."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from atcode.domain.models import DiagnosticResult, SessionSnapshot, SessionSpec
+from atcode.domain.models import DiagnosticResult, Role, SessionSnapshot, SessionSpec
 
 
 class TerminalBackend(Protocol):
@@ -19,3 +19,15 @@ class TerminalBackend(Protocol):
     def attach_session(self, session_name: str) -> None: ...
 
     def terminate_session(self, session_name: str) -> None: ...
+
+    def read_role_output(self, session_name: str, role: Role) -> str: ...
+
+    def deliver_text(self, session_name: str, role: Role, text: str) -> None: ...
+
+    def focus_role(self, session_name: str, role: Role) -> None: ...
+
+    def install_next_action(self) -> DiagnosticResult: ...
+
+    def next_action_probe(self) -> DiagnosticResult: ...
+
+    def display_message(self, message: str) -> None: ...

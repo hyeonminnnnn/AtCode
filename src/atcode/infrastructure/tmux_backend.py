@@ -21,6 +21,10 @@ from atcode.domain.models import (
 from atcode.infrastructure.process import CommandResult, SubprocessRunner
 
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_NEXT_ACTION = (
+    'atcode next --session "#{session_name}" '
+    '--pane "#{pane_id}" --notify'
+)
 
 
 class TmuxBackend:
@@ -152,6 +156,142 @@ class TmuxBackend:
                 ("tmux", "kill-session", "-t", f"={session_name}"),
                 "kill-session",
             )
+
+    def read_role_output(self, session_name: str, role: Role) -> str:
+        endpoint = self._resolve_role_endpoint(session_name, role)
+        return self._run_checked(
+            (
+                "tmux",
+                "capture-pane",
+                "-p",
+                "-S",
+                "-",
+                "-t",
+                endpoint.pane,
+            ),
+            "capture-pane",
+        ).stdout
+
+    def deliver_text(self, session_name: str, role: Role, text: str) -> None:
+        endpoint = self._resolve_role_endpoint(session_name, role)
+        result = self._runner.run(
+            ("tmux", "load-buffer", "-b", "atcode-transfer", "-"),
+            input_text=text,
+        )
+        if result.returncode != 0:
+            raise self._command_error("load-buffer", result)
+        self._run_checked(
+            (
+                "tmux",
+                "paste-buffer",
+                "-d",
+                "-b",
+                "atcode-transfer",
+                "-t",
+                endpoint.pane,
+            ),
+            "paste-buffer",
+        )
+        self._run_checked(
+            ("tmux", "send-keys", "-t", endpoint.pane, "Enter"),
+            "send-keys",
+        )
+
+    def focus_role(self, session_name: str, role: Role) -> None:
+        endpoint = self._resolve_role_endpoint(session_name, role)
+        if endpoint.window != "team":
+            self._validate_identifier(endpoint.window, "window")
+            self._run_checked(
+                (
+                    "tmux",
+                    "select-window",
+                    "-t",
+                    f"={session_name}:{endpoint.window}",
+                ),
+                "select-window",
+            )
+        self._run_checked(
+            ("tmux", "select-pane", "-t", endpoint.pane),
+            "select-pane",
+        )
+
+    def install_next_action(self) -> DiagnosticResult:
+        existing = self._runner.run(
+            ("tmux", "list-keys", "-T", "prefix", "Enter")
+        )
+        if existing.returncode == 0:
+            if "atcode next" in existing.stdout:
+                return DiagnosticResult(
+                    "next-action",
+                    DiagnosticLevel.PASS,
+                    "Ctrl+b Enter is already bound to atcode next.",
+                )
+            return DiagnosticResult(
+                "next-action",
+                DiagnosticLevel.WARN,
+                "Ctrl+b Enter already has another tmux binding.",
+                hint="Use the atcode next command instead.",
+            )
+        result = self._runner.run(
+            (
+                "tmux",
+                "bind-key",
+                "-T",
+                "prefix",
+                "Enter",
+                "run-shell",
+                _NEXT_ACTION,
+            )
+        )
+        if result.returncode != 0:
+            return DiagnosticResult(
+                "next-action",
+                DiagnosticLevel.WARN,
+                result.stderr.strip() or "Could not install Ctrl+b Enter binding.",
+                hint="Use the atcode next command instead.",
+            )
+        return DiagnosticResult(
+            "next-action",
+            DiagnosticLevel.PASS,
+            "Ctrl+b Enter is bound to atcode next.",
+        )
+
+    def next_action_probe(self) -> DiagnosticResult:
+        result = self._runner.run(
+            ("tmux", "list-keys", "-T", "prefix", "Enter")
+        )
+        if result.returncode == 0 and "atcode next" in result.stdout:
+            return DiagnosticResult(
+                "next-action",
+                DiagnosticLevel.PASS,
+                "Ctrl+b Enter is bound to atcode next.",
+            )
+        return DiagnosticResult(
+            "next-action",
+            DiagnosticLevel.WARN,
+            "Ctrl+b Enter is not bound to atcode next.",
+            hint="Run atcode start or use the atcode next command.",
+        )
+
+    def display_message(self, message: str) -> None:
+        self._run_checked(
+            ("tmux", "display-message", "--", message),
+            "display-message",
+        )
+
+    def _resolve_role_endpoint(
+        self,
+        session_name: str,
+        role: Role,
+    ) -> RoleEndpoint:
+        snapshot = self.inspect_session(session_name)
+        matches = [item for item in snapshot.endpoints if item.role is role]
+        if len(matches) != 1:
+            raise AtCodeError(
+                "TMUX_ROLE_ENDPOINT_INVALID",
+                f"Expected one tmux endpoint for role: {role.value}",
+            )
+        return matches[0]
 
     def _create_panes_session(self, spec: SessionSpec) -> None:
         by_role = {item.role: item for item in spec.roles}

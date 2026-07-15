@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 from atcode.domain.errors import AtCodeError
-from atcode.domain.models import Layout, LaunchSpec, Role, RoleSpec, SessionSpec
+from atcode.domain.models import (
+    DiagnosticLevel,
+    Layout,
+    LaunchSpec,
+    Role,
+    RoleSpec,
+    SessionSpec,
+)
 from atcode.infrastructure.process import CommandResult
 from atcode.infrastructure.tmux_backend import TmuxBackend
 
@@ -187,6 +194,104 @@ def test_inspect_session_returns_role_endpoints_from_pane_metadata() -> None:
     assert snapshot.layout is Layout.PANES
     assert tuple(endpoint.role for endpoint in snapshot.endpoints) == tuple(Role)
     assert snapshot.active_role is Role.PM
+
+
+def test_read_role_output_captures_only_resolved_role_pane() -> None:
+    rows = (
+        "pm\tteam\t%1\t1\n"
+        "developer\tteam\t%2\t0\n"
+        "reviewer\tteam\t%3\t0\n"
+    )
+    runner = FakeRunner(
+        [(0, "", ""), (0, rows, ""), (0, "developer output", "")]
+    )
+    backend = TmuxBackend(runner, {})
+
+    output = backend.read_role_output(
+        "atcode-target-1234567890",
+        Role.DEVELOPER,
+    )
+
+    assert output == "developer output"
+    assert runner.calls[-1].argv == (
+        "tmux",
+        "capture-pane",
+        "-p",
+        "-S",
+        "-",
+        "-t",
+        "%2",
+    )
+
+
+def test_deliver_text_uses_tmux_buffer_stdin_and_never_shell_content() -> None:
+    body = "line 1\n$(touch bad) `echo bad`\nline 3"
+    rows = (
+        "pm\tteam\t%1\t1\n"
+        "developer\tteam\t%2\t0\n"
+        "reviewer\tteam\t%3\t0\n"
+    )
+    runner = FakeRunner(
+        [
+            (0, "", ""),
+            (0, rows, ""),
+            (0, "", ""),
+            (0, "", ""),
+            (0, "", ""),
+        ]
+    )
+    backend = TmuxBackend(runner, {})
+
+    backend.deliver_text("atcode-target-1234567890", Role.DEVELOPER, body)
+
+    load_call = next(call for call in runner.calls if "load-buffer" in call.argv)
+    assert load_call.input_text == body
+    assert all(body not in item for call in runner.calls for item in call.argv)
+    assert any(
+        "paste-buffer" in call.argv and "%2" in call.argv
+        for call in runner.calls
+    )
+    assert any(
+        "send-keys" in call.argv and "Enter" in call.argv
+        for call in runner.calls
+    )
+
+
+def test_focus_role_selects_the_resolved_pane() -> None:
+    rows = (
+        "pm\tteam\t%1\t1\n"
+        "developer\tteam\t%2\t0\n"
+        "reviewer\tteam\t%3\t0\n"
+    )
+    runner = FakeRunner([(0, "", ""), (0, rows, ""), (0, "", "")])
+    backend = TmuxBackend(runner, {})
+
+    backend.focus_role("atcode-target-1234567890", Role.REVIEWER)
+
+    assert runner.calls[-1].argv == ("tmux", "select-pane", "-t", "%3")
+
+
+def test_existing_enter_binding_is_not_overwritten() -> None:
+    runner = FakeRunner([(0, "bind-key -T prefix Enter display-menu\n", "")])
+    backend = TmuxBackend(runner, {})
+
+    result = backend.install_next_action()
+
+    assert result.level is DiagnosticLevel.WARN
+    assert all("bind-key" not in call.argv for call in runner.calls)
+
+
+def test_unbound_enter_key_installs_atcode_next_action() -> None:
+    runner = FakeRunner([(1, "", "not bound"), (0, "", "")])
+    backend = TmuxBackend(runner, {})
+
+    result = backend.install_next_action()
+
+    assert result.level is DiagnosticLevel.PASS
+    binding = runner.calls[-1].argv
+    assert "bind-key" in binding
+    assert "Enter" in binding
+    assert any("atcode next" in item for item in binding)
 
 
 def test_attach_switches_client_when_already_in_tmux() -> None:
