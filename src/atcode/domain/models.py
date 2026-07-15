@@ -22,8 +22,6 @@ class Role(str, Enum):
     PM = "pm"
     DEVELOPER = "developer"
     REVIEWER = "reviewer"
-    TESTER = "tester"
-    DOCS = "docs"
 
 
 @dataclass(frozen=True)

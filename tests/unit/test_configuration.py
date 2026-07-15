@@ -36,6 +36,10 @@ def test_all_default_roles_use_codex(tmp_path: Path) -> None:
     }
 
 
+def test_phase_one_has_exactly_three_roles() -> None:
+    assert tuple(role.value for role in Role) == ("pm", "developer", "reviewer")
+
+
 def test_project_role_override_wins(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     service, store = make_service(tmp_path)
@@ -57,9 +61,9 @@ def test_global_override_applies_without_project_override(tmp_path: Path) -> Non
     project = make_project(tmp_path)
     service, _store = make_service(tmp_path)
 
-    service.set(project, "roles.docs.adapter", "shell", global_scope=True)
+    service.set(project, "roles.developer.adapter", "shell", global_scope=True)
 
-    assert service.effective(project).roles[Role.DOCS].adapter == "shell"
+    assert service.effective(project).roles[Role.DEVELOPER].adapter == "shell"
 
 
 def test_unknown_role_is_rejected(tmp_path: Path) -> None:
@@ -86,12 +90,82 @@ def test_unknown_adapter_is_rejected(tmp_path: Path) -> None:
 def test_unset_project_value_reveals_global_value(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     service, _store = make_service(tmp_path)
-    service.set(project, "roles.tester.adapter", "shell", global_scope=True)
-    service.set(project, "roles.tester.adapter", "gemini", global_scope=False)
+    service.set(project, "roles.developer.adapter", "shell", global_scope=True)
+    service.set(project, "roles.developer.adapter", "gemini", global_scope=False)
 
-    service.unset(project, "roles.tester.adapter", global_scope=False)
+    service.unset(project, "roles.developer.adapter", global_scope=False)
 
-    assert service.get(project, "roles.tester.adapter") == "shell"
+    assert service.get(project, "roles.developer.adapter") == "shell"
+
+
+def test_legacy_roles_are_ignored_without_mutating_file(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    service, store = make_service(tmp_path)
+    stored = {
+        "schemaVersion": 1,
+        "roles": {
+            "reviewer": {"adapter": "gemini"},
+            "tester": {"adapter": "codex"},
+            "docs": {"adapter": "claude"},
+        },
+    }
+    store.write_project(project, stored)
+
+    config = service.effective(project)
+
+    assert set(config.roles) == {Role.PM, Role.DEVELOPER, Role.REVIEWER}
+    assert config.roles[Role.REVIEWER].adapter == "gemini"
+    assert store.read_project(project) == stored
+
+
+def test_next_config_write_removes_legacy_roles(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    service, store = make_service(tmp_path)
+    store.write_project(
+        project,
+        {
+            "schemaVersion": 1,
+            "roles": {
+                "tester": {"adapter": "codex"},
+                "docs": {"adapter": "codex"},
+            },
+        },
+    )
+
+    service.set(project, "roles.reviewer.adapter", "gemini", global_scope=False)
+
+    assert store.read_project(project) == {
+        "schemaVersion": 1,
+        "roles": {"reviewer": {"adapter": "gemini"}},
+    }
+
+
+def test_unknown_persisted_role_is_rejected(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    service, store = make_service(tmp_path)
+    store.write_project(
+        project,
+        {"schemaVersion": 1, "roles": {"architect": {"adapter": "codex"}}},
+    )
+
+    with pytest.raises(AtCodeError, match="CONFIG_INVALID"):
+        service.effective(project)
+
+
+@pytest.mark.parametrize("role_name", ["tester", "docs"])
+def test_malformed_legacy_role_is_rejected(
+    tmp_path: Path,
+    role_name: str,
+) -> None:
+    project = make_project(tmp_path)
+    service, store = make_service(tmp_path)
+    store.write_project(
+        project,
+        {"schemaVersion": 1, "roles": {role_name: {}}},
+    )
+
+    with pytest.raises(AtCodeError, match="CONFIG_INVALID"):
+        service.effective(project)
 
 
 def test_unknown_json_key_is_rejected(tmp_path: Path) -> None:

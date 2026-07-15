@@ -16,10 +16,10 @@ _DEFAULT: dict[str, Any] = {
         "pm": {"adapter": "codex"},
         "developer": {"adapter": "codex"},
         "reviewer": {"adapter": "codex"},
-        "tester": {"adapter": "codex"},
-        "docs": {"adapter": "codex"},
     },
 }
+
+_LEGACY_ROLES = frozenset({"tester", "docs"})
 
 
 class ConfigurationService:
@@ -41,8 +41,9 @@ class ConfigurationService:
                 layers.append(self._store.read_project(project))
             merged = deepcopy(_DEFAULT)
             for layer in layers:
-                self._validate_layer(layer)
-                merged = _merge(merged, layer)
+                normalized = self._normalize_legacy_roles(layer)
+                self._validate_layer(normalized)
+                merged = _merge(merged, normalized)
             self._validate_layer(merged, complete=True)
             return RuntimeConfig(
                 backend=merged["backend"],
@@ -116,14 +117,14 @@ class ConfigurationService:
     ) -> dict[str, Any]:
         try:
             if global_scope:
-                return self._store.read_global()
+                return self._normalize_legacy_roles(self._store.read_global())
             if project is None:
                 raise AtCodeError(
                     "PROJECT_REQUIRED",
                     "A project is required.",
                     exit_code=2,
                 )
-            return self._store.read_project(project)
+            return self._normalize_legacy_roles(self._store.read_project(project))
         except AtCodeError:
             raise
         except (OSError, TypeError, ValueError) as error:
@@ -164,6 +165,8 @@ class ConfigurationService:
             )
 
     def _validate_layer(self, value: dict[str, Any], complete: bool = False) -> None:
+        if not isinstance(value, dict):
+            raise AtCodeError("CONFIG_INVALID", "Configuration must be an object.")
         if value.get("schemaVersion") != 1 or set(value) - {
             "schemaVersion",
             "backend",
@@ -178,14 +181,30 @@ class ConfigurationService:
         for role_name, assignment in roles.items():
             if role_name not in {role.value for role in Role}:
                 raise AtCodeError("CONFIG_INVALID", f"Unknown role: {role_name}")
-            if not isinstance(assignment, dict) or set(assignment) != {"adapter"}:
-                raise AtCodeError("CONFIG_INVALID", f"Invalid role: {role_name}")
-            self._validate_value(
-                f"roles.{role_name}.adapter",
-                assignment["adapter"],
-            )
+            self._validate_assignment(role_name, assignment)
         if complete and set(roles) != {role.value for role in Role}:
             raise AtCodeError("CONFIG_INVALID", "Every Phase 1 role is required.")
+
+    def _normalize_legacy_roles(self, value: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise AtCodeError("CONFIG_INVALID", "Configuration must be an object.")
+        normalized = deepcopy(value)
+        roles = normalized.get("roles")
+        if not isinstance(roles, dict):
+            return normalized
+        for role_name in _LEGACY_ROLES:
+            if role_name in roles:
+                self._validate_assignment(role_name, roles[role_name])
+                roles.pop(role_name)
+        return normalized
+
+    def _validate_assignment(self, role_name: str, assignment: Any) -> None:
+        if not isinstance(assignment, dict) or set(assignment) != {"adapter"}:
+            raise AtCodeError("CONFIG_INVALID", f"Invalid role: {role_name}")
+        self._validate_value(
+            f"roles.{role_name}.adapter",
+            assignment["adapter"],
+        )
 
 
 def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

@@ -130,8 +130,12 @@ def test_project_config_override_is_visible(tmp_path: Path) -> None:
     show_code, show_out, _ = invoke(container, target, "config", "show")
 
     assert code == show_code == 0
+    assert '"pm"' in show_out
+    assert '"developer"' in show_out
     assert '"reviewer"' in show_out
     assert '"codex"' in show_out
+    assert '"tester"' not in show_out
+    assert '"docs"' not in show_out
 
 
 def test_unregistered_project_error_has_no_traceback(tmp_path: Path) -> None:
