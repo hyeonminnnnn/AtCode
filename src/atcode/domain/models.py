@@ -50,3 +50,36 @@ class RuntimeConfig:
 class RenderedPrompt:
     text: str
     path: Path
+
+
+class DiagnosticLevel(str, Enum):
+    PASS = "PASS"
+    WARN = "WARN"
+    FAIL = "FAIL"
+
+
+@dataclass(frozen=True)
+class DiagnosticResult:
+    name: str
+    level: DiagnosticLevel
+    message: str
+    hint: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.level is not DiagnosticLevel.FAIL
+
+
+@dataclass(frozen=True)
+class RoleLaunchContext:
+    project: Project
+    role: Role
+    prompt: RenderedPrompt
+    atcode_home: Path
+
+
+@dataclass(frozen=True)
+class LaunchSpec:
+    executable: str
+    arguments: tuple[str, ...] = ()
+    environment: Mapping[str, str] | None = None
