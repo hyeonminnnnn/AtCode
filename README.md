@@ -41,7 +41,7 @@ export ATCODE_HOME="$HOME/.local/share/atcode"
 ## 기본 사용법
 
 ```bash
-cd /mnt/d/project/SmileLRS
+cd /mnt/d/project/project1
 atcode init
 atcode doctor
 atcode start
@@ -77,7 +77,7 @@ atcode stop
 다른 위치에서는 프로젝트 경로를 명시할 수도 있습니다.
 
 ```bash
-atcode status --project /mnt/d/project/SmileLRS
+atcode status --project /mnt/d/project/project1
 ```
 
 ## 여러 세션 열기
