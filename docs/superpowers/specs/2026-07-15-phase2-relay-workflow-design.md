@@ -339,7 +339,8 @@ AtCode는 `.tmux.conf`를 수정하지 않는다. 실행 중인 tmux Server에�
 - 충돌은 `atcode doctor`와 `atcode start`에서 경고한다.
 - 충돌 시 `atcode next`를 대체 명령으로 안내한다.
 - AtCode Session이 아닌 tmux Session에서는 AtCode Binding이 상태를 변경하지 않는다.
-- 단축키로 실행한 `next`의 성공 또는 오류는 tmux `display-message`로 현재 화면에 표시한다.
+- 단축키로 실행한 `next`의 성공 또는 오류는 tmux `display-message -d 1000`으로
+  현재 화면에 표시하고 1초 뒤 자동으로 닫는다.
 
 ## 기존 데이터와 호환
 

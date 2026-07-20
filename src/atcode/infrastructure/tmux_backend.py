@@ -276,7 +276,7 @@ class TmuxBackend:
 
     def display_message(self, message: str) -> None:
         self._run_checked(
-            ("tmux", "display-message", "--", message),
+            ("tmux", "display-message", "-d", "1000", "--", message),
             "display-message",
         )
 

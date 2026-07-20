@@ -317,6 +317,22 @@ def test_unbound_enter_key_installs_atcode_next_action() -> None:
     assert any("atcode next" in item for item in binding)
 
 
+def test_display_message_expires_without_waiting_for_key() -> None:
+    runner = FakeRunner([(0, "", "")])
+    backend = TmuxBackend(runner, {})
+
+    backend.display_message("transfer=1 pm -> developer workflow=active")
+
+    assert runner.calls[-1].argv == (
+        "tmux",
+        "display-message",
+        "-d",
+        "1000",
+        "--",
+        "transfer=1 pm -> developer workflow=active",
+    )
+
+
 def test_attach_switches_client_when_already_in_tmux() -> None:
     runner = FakeRunner([])
     backend = TmuxBackend(runner, {"TMUX": "/tmp/tmux-1000/default,1,0"})
