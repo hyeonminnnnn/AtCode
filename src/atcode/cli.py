@@ -107,9 +107,10 @@ def run(
             )
             if result.focus_warning:
                 message += f" focus-warning={result.focus_warning}"
-            print(message, file=stdout)
             if args.notify:
                 _display_message(container, message)
+            else:
+                print(message, file=stdout)
         elif args.command == "doctor":
             project = _optional_project(container, args.project, cwd)
             results = container.diagnostics.run(project)
@@ -148,6 +149,7 @@ def run(
     except AtCodeError as error:
         if args.command == "next" and getattr(args, "notify", False):
             _display_message(container, f"ERROR {error.code}: {error.message}")
+            return 0
         print(f"ERROR {error.code}: {error.message}", file=stderr)
         if error.hint:
             print(f"Hint: {error.hint}", file=stderr)

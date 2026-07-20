@@ -189,6 +189,38 @@ def test_next_routes_current_role_and_prints_transfer(tmp_path: Path) -> None:
     assert stderr == ""
 
 
+def test_internal_next_notify_reports_success_without_stdout(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    container = make_container(tmp_path)
+    invoke(container, target, "init")
+    invoke(container, target, "start")
+    session_name = next(iter(container.backend.snapshots))
+    container.backend.outputs[Role.PM] = (
+        "<ATCODE_HANDOFF>\nSTATUS: ready\nSUMMARY:\nbuild it\n</ATCODE_HANDOFF>"
+    )
+
+    code, stdout, stderr = invoke(
+        container,
+        target,
+        "next",
+        "--session",
+        session_name,
+        "--pane",
+        "%1",
+        "--notify",
+    )
+
+    assert code == 0
+    assert stdout == ""
+    assert stderr == ""
+    assert container.backend.messages == [
+        "transfer=1 pm -> developer workflow=active"
+    ]
+
+
 def test_status_prints_workflow_role_and_round(tmp_path: Path) -> None:
     target = tmp_path / "target"
     target.mkdir()
@@ -222,6 +254,35 @@ def test_internal_next_rejects_unknown_session_without_traceback(
     assert code == 1
     assert "SESSION_NOT_REGISTERED" in stderr
     assert "Traceback" not in stderr
+
+
+def test_internal_next_notify_reports_error_without_failing_tmux_command(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    container = make_container(tmp_path)
+    invoke(container, target, "init")
+    invoke(container, target, "start")
+    session_name = next(iter(container.backend.snapshots))
+
+    code, stdout, stderr = invoke(
+        container,
+        target,
+        "next",
+        "--session",
+        session_name,
+        "--pane",
+        "%2",
+        "--notify",
+    )
+
+    assert code == 0
+    assert stdout == ""
+    assert stderr == ""
+    assert container.backend.messages == [
+        "ERROR WORKFLOW_ROLE_MISMATCH: Expected pm, got developer."
+    ]
 
 
 def test_start_fresh_requires_stopped_session_and_confirmation(

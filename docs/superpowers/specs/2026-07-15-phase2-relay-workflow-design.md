@@ -318,7 +318,8 @@ Tmux Backend는 다음을 담당한다.
 - 각 Pane에 AtCode Role Metadata 지정
 - `team` Window의 Pane Border에 PM, Developer, Reviewer 이름 표시
 - 역할 출력의 일시적 `capture-pane`
-- 인계 파일을 tmux Buffer에 Load하고 Target Pane에 Paste
+- 인계 파일을 tmux Buffer에 Load하고 `paste-buffer -p`로 Target Pane에
+  bracketed paste
 - 제출에 필요한 Enter Key 전달
 - Target Pane 또는 Window 선택
 - `Ctrl+b Enter`와 `atcode next` 연결
@@ -338,7 +339,12 @@ AtCode는 `.tmux.conf`를 수정하지 않는다. 실행 중인 tmux Server에�
 - 충돌은 `atcode doctor`와 `atcode start`에서 경고한다.
 - 충돌 시 `atcode next`를 대체 명령으로 안내한다.
 - AtCode Session이 아닌 tmux Session에서는 AtCode Binding이 상태를 변경하지 않는다.
-- 단축키로 실행한 `next`의 성공 또는 오류는 tmux `display-message`로 현재 화면에 표시한다.
+- 단축키로 실행한 `next`의 성공 또는 오류는 tmux `display-message -d 1000`으로
+  현재 화면에 표시하고 1초 뒤 자동으로 닫는다.
+- 단축키의 내부 `--notify` 경로는 성공과 오류를 알림으로만 보고하며
+  stdout/stderr를 출력하지 않는다. 오류도 성공 종료해 tmux가 별도의 명령 결과
+  화면을 열지 않게 한다. 사용자가 직접 실행한 `atcode next`는 기존 출력과 오류
+  종료 코드를 유지한다.
 
 ## 기존 데이터와 호환
 
@@ -430,7 +436,7 @@ tests/unit, tests/integration
 1. 기본 Session이 `team` Window와 세 Role Pane을 만든다.
 2. windows 설정은 기존 세 Window를 만든다.
 3. Role Metadata로 Layout과 무관하게 Endpoint를 찾는다.
-4. Source 출력 Capture, Buffer Load, Paste, Enter, Focus 명령을 올바른 Target에 실행한다.
+4. Source 출력 Capture, Buffer Load, bracketed Paste, Enter, Focus 명령을 올바른 Target에 실행한다.
 5. 인계 본문의 따옴표, 줄바꿈, `$()`, Backtick이 Shell로 실행되지 않는다.
 6. 기존 `Ctrl+b Enter` Binding을 덮어쓰지 않는다.
 7. 일부 Pane이 없으면 Degraded 상태를 반환한다.

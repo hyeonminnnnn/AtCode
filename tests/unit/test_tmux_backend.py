@@ -247,10 +247,11 @@ def test_deliver_text_uses_tmux_buffer_stdin_and_never_shell_content() -> None:
     load_call = next(call for call in runner.calls if "load-buffer" in call.argv)
     assert load_call.input_text == body
     assert all(body not in item for call in runner.calls for item in call.argv)
-    assert any(
-        "paste-buffer" in call.argv and "%2" in call.argv
-        for call in runner.calls
+    paste_call = next(
+        call for call in runner.calls if "paste-buffer" in call.argv
     )
+    assert "-p" in paste_call.argv
+    assert "%2" in paste_call.argv
     assert any(
         "send-keys" in call.argv and "Enter" in call.argv
         for call in runner.calls
@@ -314,6 +315,22 @@ def test_unbound_enter_key_installs_atcode_next_action() -> None:
     assert "bind-key" in binding
     assert "Enter" in binding
     assert any("atcode next" in item for item in binding)
+
+
+def test_display_message_expires_without_waiting_for_key() -> None:
+    runner = FakeRunner([(0, "", "")])
+    backend = TmuxBackend(runner, {})
+
+    backend.display_message("transfer=1 pm -> developer workflow=active")
+
+    assert runner.calls[-1].argv == (
+        "tmux",
+        "display-message",
+        "-d",
+        "1000",
+        "--",
+        "transfer=1 pm -> developer workflow=active",
+    )
 
 
 def test_attach_switches_client_when_already_in_tmux() -> None:
