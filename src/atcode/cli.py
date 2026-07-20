@@ -148,6 +148,7 @@ def run(
     except AtCodeError as error:
         if args.command == "next" and getattr(args, "notify", False):
             _display_message(container, f"ERROR {error.code}: {error.message}")
+            return 0
         print(f"ERROR {error.code}: {error.message}", file=stderr)
         if error.hint:
             print(f"Hint: {error.hint}", file=stderr)

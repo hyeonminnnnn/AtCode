@@ -224,6 +224,35 @@ def test_internal_next_rejects_unknown_session_without_traceback(
     assert "Traceback" not in stderr
 
 
+def test_internal_next_notify_reports_error_without_failing_tmux_command(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    container = make_container(tmp_path)
+    invoke(container, target, "init")
+    invoke(container, target, "start")
+    session_name = next(iter(container.backend.snapshots))
+
+    code, stdout, stderr = invoke(
+        container,
+        target,
+        "next",
+        "--session",
+        session_name,
+        "--pane",
+        "%2",
+        "--notify",
+    )
+
+    assert code == 0
+    assert stdout == ""
+    assert stderr == ""
+    assert container.backend.messages == [
+        "ERROR WORKFLOW_ROLE_MISMATCH: Expected pm, got developer."
+    ]
+
+
 def test_start_fresh_requires_stopped_session_and_confirmation(
     tmp_path: Path,
 ) -> None:

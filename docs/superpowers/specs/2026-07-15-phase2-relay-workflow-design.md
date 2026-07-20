@@ -341,6 +341,9 @@ AtCode는 `.tmux.conf`를 수정하지 않는다. 실행 중인 tmux Server에�
 - AtCode Session이 아닌 tmux Session에서는 AtCode Binding이 상태를 변경하지 않는다.
 - 단축키로 실행한 `next`의 성공 또는 오류는 tmux `display-message -d 1000`으로
   현재 화면에 표시하고 1초 뒤 자동으로 닫는다.
+- 단축키의 내부 `--notify` 경로는 오류를 알림으로 보고한 뒤 성공 종료해 tmux가
+  별도의 명령 결과 화면을 열지 않게 한다. 사용자가 직접 실행한 `atcode next`는
+  기존 오류 종료 코드를 유지한다.
 
 ## 기존 데이터와 호환
 
