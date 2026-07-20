@@ -89,7 +89,7 @@ AtCode는 프로젝트 하나당 tmux 세션 하나를 만듭니다. 여러 프�
 첫 번째 WSL 터미널:
 
 ```bash
-cd /mnt/d/project/SmileLRS
+cd /mnt/d/project/project1
 atcode init       # 이 프로젝트에서 최초 한 번만 실행합니다.
 atcode start
 atcode attach
@@ -115,8 +115,8 @@ atcode list
 지정합니다.
 
 ```bash
-atcode status --project /mnt/d/project/SmileLRS
-atcode stop --project /mnt/d/project/SmileLRS
+atcode status --project /mnt/d/project/project1
+atcode stop --project /mnt/d/project/project1
 ```
 
 같은 프로젝트에서 `atcode attach`를 여러 번 실행하면 새 AtCode 세션이 생기는
@@ -128,7 +128,7 @@ workflow 여러 개를 만드는 기능은 현재 지원하지 않습니다.
 다시 시작합니다.
 
 ```bash
-cd /mnt/d/project/SmileLRS
+cd /mnt/d/project/project1
 atcode config set layout windows
 atcode stop
 atcode start
