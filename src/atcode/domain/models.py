@@ -24,6 +24,29 @@ class Role(str, Enum):
     REVIEWER = "reviewer"
 
 
+class Layout(str, Enum):
+    PANES = "panes"
+    WINDOWS = "windows"
+
+
+class HandoffDecision(str, Enum):
+    READY = "ready"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class DeliveryState(str, Enum):
+    PENDING = "pending"
+    DELIVERED = "delivered"
+
+
+class WorkflowStatus(str, Enum):
+    IDLE = "idle"
+    ACTIVE = "active"
+    REWORK = "rework"
+    COMPLETE = "complete"
+
+
 @dataclass(frozen=True)
 class RoleAssignment:
     adapter: str
@@ -33,11 +56,13 @@ class RoleAssignment:
 class RuntimeConfig:
     backend: str
     roles: Mapping[Role, RoleAssignment]
+    layout: Layout = Layout.PANES
 
     def to_dict(self) -> dict[str, object]:
         return {
             "schemaVersion": 1,
             "backend": self.backend,
+            "layout": self.layout.value,
             "roles": {
                 role.value: {"adapter": self.roles[role].adapter} for role in Role
             },
@@ -84,8 +109,8 @@ class LaunchSpec:
 
 
 @dataclass(frozen=True)
-class WindowSpec:
-    name: str
+class RoleSpec:
+    role: Role
     cwd: Path
     launch: LaunchSpec
 
@@ -94,15 +119,28 @@ class WindowSpec:
 class SessionSpec:
     session_name: str
     project_root: Path
-    windows: tuple[WindowSpec, ...]
+    layout: Layout
+    roles: tuple[RoleSpec, ...]
+
+
+@dataclass(frozen=True)
+class RoleEndpoint:
+    role: Role
+    window: str
+    pane: str
+    active: bool = False
 
 
 @dataclass(frozen=True)
 class SessionSnapshot:
     session_name: str
     exists: bool
-    windows: tuple[str, ...] = ()
-    active_window: str | None = None
+    layout: Layout | None = None
+    endpoints: tuple[RoleEndpoint, ...] = ()
+
+    @property
+    def active_role(self) -> Role | None:
+        return next((item.role for item in self.endpoints if item.active), None)
 
     @classmethod
     def stopped(cls, session_name: str) -> "SessionSnapshot":
@@ -120,7 +158,50 @@ class Lifecycle(str, Enum):
 class RoleRuntime:
     role: Role
     adapter: str
-    window: str
+    endpoint: str
+
+
+@dataclass(frozen=True)
+class ParsedHandoff:
+    decision: HandoffDecision
+    body: str
+    digest: str
+
+
+@dataclass(frozen=True)
+class Handoff:
+    transfer_id: int
+    from_role: Role
+    to_role: Role
+    decision: HandoffDecision
+    delivery: DeliveryState
+    digest: str
+    body: str
+    created_at: str
+    delivered_at: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowState:
+    status: WorkflowStatus
+    current_role: Role
+    round: int
+    last_transfer_id: int
+    last_digests: Mapping[Role, str]
+    updated_at: str | None
+
+    @classmethod
+    def initial(cls) -> "WorkflowState":
+        return cls(WorkflowStatus.IDLE, Role.PM, 0, 0, {}, None)
+
+
+@dataclass(frozen=True)
+class TransferResult:
+    transfer_id: int
+    from_role: Role
+    to_role: Role
+    workflow_status: WorkflowStatus
+    focus_warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -133,3 +214,4 @@ class RuntimeState:
     stopped_at: str | None
     roles: tuple[RoleRuntime, ...]
     last_error: str | None = None
+    layout: Layout = Layout.PANES

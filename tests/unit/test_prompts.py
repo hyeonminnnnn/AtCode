@@ -4,9 +4,18 @@ from pathlib import Path
 
 import pytest
 
-from atcode.application.prompts import PromptRenderer
+from atcode.application.prompts import PromptRenderer, StartupPromptBuilder
 from atcode.domain.errors import AtCodeError
-from atcode.domain.models import Project, Role
+from atcode.domain.models import (
+    DeliveryState,
+    Handoff,
+    HandoffDecision,
+    Project,
+    RenderedPrompt,
+    Role,
+    WorkflowState,
+    WorkflowStatus,
+)
 from atcode.infrastructure.storage.prompts import FilesystemPromptStore
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -86,7 +95,7 @@ def test_role_template_has_operating_contract(role: Role) -> None:
     assert "{{PROJECT_ID}}" in text
     assert "{{PROJECT_ROOT}}" in text
     assert "{{ATCODE_HOME}}" in text
-    assert "Phase 1" in text
+    assert "AtCode Runtime" in text
 
 
 def test_role_templates_embed_model_neutral_methods() -> None:
@@ -117,3 +126,124 @@ def test_prompt_directory_has_only_active_roles() -> None:
         "developer",
         "reviewer",
     }
+
+
+def test_role_templates_define_handoff_protocol() -> None:
+    templates = {
+        role: (REPO_ROOT / "prompts" / f"{role.value}.md").read_text(
+            encoding="utf-8"
+        )
+        for role in Role
+    }
+
+    for text in templates.values():
+        assert "<ATCODE_HANDOFF>" in text
+        assert "</ATCODE_HANDOFF>" in text
+        assert "ATCODE_TRANSFER" in text
+        assert "중복" in text
+        assert "waiting" in text
+
+    assert "STATUS: ready" in templates[Role.PM]
+    assert "STATUS: ready" in templates[Role.DEVELOPER]
+    assert "STATUS: approved" in templates[Role.REVIEWER]
+    assert "STATUS: rejected" in templates[Role.REVIEWER]
+
+
+def test_waiting_role_must_not_emit_handoff() -> None:
+    for role in Role:
+        text = (REPO_ROOT / "prompts" / f"{role.value}.md").read_text(
+            encoding="utf-8"
+        )
+        assert "waiting" in text
+        assert "다음 역할용 handoff를 출력하지 않는다" in text
+
+
+def test_idle_startup_marks_only_pm_active(tmp_path: Path) -> None:
+    rendered = RenderedPrompt("role contract", tmp_path / "developer.md")
+    startup = StartupPromptBuilder()
+
+    developer = startup.build(
+        rendered,
+        Role.DEVELOPER,
+        WorkflowState.initial(),
+        None,
+    )
+    pm = startup.build(rendered, Role.PM, WorkflowState.initial(), None)
+
+    assert "MODE: waiting" in developer.text
+    assert "MODE: active" in pm.text
+    assert "[ATCODE_TRANSFER id=" not in developer.text
+    assert rendered.text == "role contract"
+
+
+def test_resume_includes_handoff_only_for_current_role(tmp_path: Path) -> None:
+    workflow = WorkflowState(
+        WorkflowStatus.ACTIVE,
+        Role.DEVELOPER,
+        1,
+        1,
+        {},
+        "time",
+    )
+    handoff = Handoff(
+        1,
+        Role.PM,
+        Role.DEVELOPER,
+        HandoffDecision.READY,
+        DeliveryState.DELIVERED,
+        "sha256:abc",
+        "SUMMARY:\nbuild it",
+        "created",
+        "delivered",
+    )
+    rendered = RenderedPrompt("role contract", tmp_path / "developer.md")
+    startup = StartupPromptBuilder()
+
+    developer = startup.build(rendered, Role.DEVELOPER, workflow, handoff)
+    reviewer = startup.build(rendered, Role.REVIEWER, workflow, handoff)
+
+    assert "MODE: active" in developer.text
+    assert "[ATCODE_TRANSFER id=1 from=pm to=developer]" in developer.text
+    assert "MODE: waiting" in reviewer.text
+    assert "build it" not in reviewer.text
+    assert developer.path == rendered.path
+
+
+def test_startup_handoff_is_not_persisted_in_rendered_prompt_file(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    renderer, _runtime_home = make_renderer(
+        tmp_path,
+        "# Developer\nProject: {{PROJECT_NAME}}\n",
+    )
+    rendered = renderer.render(project, Role.DEVELOPER)
+    workflow = WorkflowState(
+        WorkflowStatus.ACTIVE,
+        Role.DEVELOPER,
+        1,
+        1,
+        {},
+        "time",
+    )
+    handoff = Handoff(
+        1,
+        Role.PM,
+        Role.DEVELOPER,
+        HandoffDecision.READY,
+        DeliveryState.DELIVERED,
+        "sha256:abc",
+        "SUMMARY:\nsecret handoff body",
+        "created",
+        "delivered",
+    )
+
+    startup = StartupPromptBuilder().build(
+        rendered,
+        Role.DEVELOPER,
+        workflow,
+        handoff,
+    )
+
+    assert "secret handoff body" in startup.text
+    assert "secret handoff body" not in rendered.path.read_text(encoding="utf-8")

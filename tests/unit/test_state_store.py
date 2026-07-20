@@ -7,6 +7,7 @@ import pytest
 
 from atcode.domain.errors import AtCodeError
 from atcode.domain.models import (
+    Layout,
     Lifecycle,
     Project,
     Role,
@@ -14,6 +15,7 @@ from atcode.domain.models import (
     RuntimeState,
 )
 from atcode.infrastructure.storage.state import JsonStateStore
+from atcode.infrastructure.storage.lock import JsonProjectLock
 
 
 def make_project(tmp_path: Path) -> Project:
@@ -63,6 +65,22 @@ def test_state_json_contains_no_prompt_or_user_task(tmp_path: Path) -> None:
     assert "task" not in json.dumps(value).lower()
 
 
+def test_state_writer_uses_schema_two_layout_and_endpoint(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    store = JsonStateStore(runtime_home)
+
+    store.write(project, make_state(project))
+
+    value = json.loads(
+        (runtime_home / "projects" / project.project_id / "state.json").read_text()
+    )
+    assert value["schemaVersion"] == 2
+    assert value["layout"] == "panes"
+    assert value["roles"][0]["endpoint"] == "pm"
+    assert "window" not in value["roles"][0]
+
+
 def test_legacy_roles_are_filtered_and_removed_on_next_write(
     tmp_path: Path,
 ) -> None:
@@ -90,6 +108,7 @@ def test_legacy_roles_are_filtered_and_removed_on_next_write(
     state = store.read(project)
 
     assert state is not None
+    assert state.layout is Layout.WINDOWS
     assert tuple(item.role.value for item in state.roles) == (
         "pm",
         "developer",
@@ -99,6 +118,8 @@ def test_legacy_roles_are_filtered_and_removed_on_next_write(
 
     store.write(project, state)
     persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["schemaVersion"] == 2
+    assert persisted["layout"] == "windows"
     assert [item["role"] for item in persisted["roles"]] == [
         "pm",
         "developer",
@@ -145,12 +166,40 @@ def test_unsupported_state_schema_is_rejected(tmp_path: Path) -> None:
         JsonStateStore(runtime_home).read(project)
 
 
-def test_lock_file_is_created_under_runtime_home(tmp_path: Path) -> None:
+def test_schema_two_rejects_unknown_role_fields(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     runtime_home = tmp_path / "runtime"
     store = JsonStateStore(runtime_home)
+    store.write(project, make_state(project))
+    path = runtime_home / "projects" / project.project_id / "state.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["roles"][0]["window"] = "pm"
+    path.write_text(json.dumps(value), encoding="utf-8")
 
-    with store.locked(project):
+    with pytest.raises(AtCodeError, match="STATE_INVALID"):
+        store.read(project)
+
+
+def test_schema_two_rejects_unknown_top_level_fields(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    store = JsonStateStore(runtime_home)
+    store.write(project, make_state(project))
+    path = runtime_home / "projects" / project.project_id / "state.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["history"] = []
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(AtCodeError, match="STATE_INVALID"):
+        store.read(project)
+
+
+def test_lock_file_is_created_under_runtime_home(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    runtime_home = tmp_path / "runtime"
+    lock = JsonProjectLock(runtime_home)
+
+    with lock.locked(project):
         lock_path = runtime_home / "projects" / project.project_id / "state.lock"
         assert lock_path.is_file()
 

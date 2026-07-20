@@ -17,10 +17,11 @@ from atcode.domain.models import (
     RuntimeState,
     SessionSnapshot,
     SessionSpec,
-    WindowSpec,
+    RoleSpec,
 )
+from atcode.application.workflow import reconcile_state
 from atcode.ports.backend import TerminalBackend
-from atcode.ports.storage import StateStore
+from atcode.ports.storage import ProjectLock, StateStore, WorkflowStore
 
 
 class SessionService:
@@ -33,6 +34,9 @@ class SessionService:
         adapters: Any,
         backend: TerminalBackend,
         state_store: StateStore,
+        workflow_store: WorkflowStore,
+        project_lock: ProjectLock,
+        startup_prompts: Any,
         atcode_home: Path,
     ) -> None:
         self._project = project
@@ -41,11 +45,14 @@ class SessionService:
         self._adapters = adapters
         self._backend = backend
         self._state_store = state_store
+        self._workflow_store = workflow_store
+        self._project_lock = project_lock
+        self._startup_prompts = startup_prompts
         self._atcode_home = atcode_home
         self._session_name = f"atcode-{project.project_id}"
 
     def start(self) -> RuntimeState:
-        with self._state_store.locked(self._project):
+        with self._project_lock.locked(self._project):
             config = self._configuration.effective(self._project)
             snapshot = self._backend.inspect_session(self._session_name)
             if snapshot.exists:
@@ -54,7 +61,7 @@ class SessionService:
                 if state.status is Lifecycle.DEGRADED:
                     raise AtCodeError(
                         "SESSION_DEGRADED",
-                        "The existing project session is missing role windows.",
+                        "The existing project session has invalid role endpoints.",
                         hint="Run atcode stop, then atcode start.",
                     )
                 return state
@@ -67,9 +74,26 @@ class SessionService:
                     hint=backend_probe.hint,
                 )
 
-            windows: list[WindowSpec] = []
+            workflow = self._workflow_store.read_workflow(self._project)
+            handoff = self._workflow_store.read_handoff(self._project)
+            reconciled = reconcile_state(
+                workflow,
+                handoff,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            if reconciled != workflow:
+                self._workflow_store.write_workflow(self._project, reconciled)
+            workflow = reconciled
+
+            roles: list[RoleSpec] = []
             for role in Role:
                 rendered = self._prompts.render(self._project, role)
+                startup_prompt = self._startup_prompts.build(
+                    rendered,
+                    role,
+                    workflow,
+                    handoff,
+                )
                 assignment = config.roles[role]
                 adapter = self._adapters.get(assignment.adapter)
                 diagnostic = adapter.probe()
@@ -82,15 +106,20 @@ class SessionService:
                 context = RoleLaunchContext(
                     self._project,
                     role,
-                    rendered,
+                    startup_prompt,
                     self._atcode_home,
                 )
-                windows.append(
-                    WindowSpec(role.value, self._project.root, adapter.build_launch(context))
+                roles.append(
+                    RoleSpec(role, self._project.root, adapter.build_launch(context))
                 )
 
             self._backend.create_session(
-                SessionSpec(self._session_name, self._project.root, tuple(windows))
+                SessionSpec(
+                    self._session_name,
+                    self._project.root,
+                    config.layout,
+                    tuple(roles),
+                )
             )
             state = self._state_from_snapshot(
                 self._backend.inspect_session(self._session_name),
@@ -111,7 +140,7 @@ class SessionService:
         self._backend.attach_session(self._session_name)
 
     def stop(self) -> RuntimeState:
-        with self._state_store.locked(self._project):
+        with self._project_lock.locked(self._project):
             config = self._configuration.effective(self._project)
             snapshot = self._backend.inspect_session(self._session_name)
             if snapshot.exists:
@@ -125,7 +154,7 @@ class SessionService:
             return state
 
     def status(self) -> RuntimeState:
-        with self._state_store.locked(self._project):
+        with self._project_lock.locked(self._project):
             config = self._configuration.effective(self._project)
             state = self._state_from_snapshot(
                 self._backend.inspect_session(self._session_name),
@@ -144,11 +173,15 @@ class SessionService:
     ) -> RuntimeState:
         previous = self._state_store.read(self._project)
         now = datetime.now(timezone.utc).isoformat()
-        expected = {role.value for role in Role}
-        actual = set(snapshot.windows)
+        expected = set(Role)
+        actual = {endpoint.role for endpoint in snapshot.endpoints}
         if not snapshot.exists:
             lifecycle = Lifecycle.STOPPED
-        elif actual == expected:
+        elif (
+            actual == expected
+            and len(snapshot.endpoints) == len(Role)
+            and snapshot.layout is config.layout
+        ):
             lifecycle = Lifecycle.RUNNING
         else:
             lifecycle = Lifecycle.DEGRADED
@@ -168,6 +201,12 @@ class SessionService:
                 )
             ),
             roles=tuple(
-                RoleRuntime(role, config.roles[role].adapter, role.value) for role in Role
+                RoleRuntime(
+                    role,
+                    config.roles[role].adapter,
+                    role.value,
+                )
+                for role in Role
             ),
+            layout=config.layout,
         )

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import os
-from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO, Iterator
 
 from atcode.domain.errors import AtCodeError
 from atcode.domain.models import (
+    Layout,
     Lifecycle,
     Project,
     Role,
@@ -18,6 +16,21 @@ from atcode.domain.models import (
 from atcode.infrastructure.storage.json_file import read_json, write_json_atomic
 
 _LEGACY_ROLES = frozenset({"tester", "docs"})
+_COMMON_KEYS = {
+    "schemaVersion",
+    "projectId",
+    "backend",
+    "backendSession",
+    "status",
+    "startedAt",
+    "stoppedAt",
+    "roles",
+    "lastError",
+}
+_ROLE_KEYS = {
+    1: {"role", "adapter", "window"},
+    2: {"role", "adapter", "endpoint"},
+}
 
 
 class JsonStateStore:
@@ -30,18 +43,43 @@ class JsonStateStore:
             return None
         try:
             value = read_json(path)
-            if value.get("schemaVersion") != 1:
+            schema_version = value.get("schemaVersion")
+            if schema_version not in {1, 2}:
                 raise ValueError("unsupported schemaVersion")
+            expected_keys = _COMMON_KEYS | (
+                {"layout"} if schema_version == 2 else set()
+            )
+            if set(value) != expected_keys:
+                raise ValueError("unexpected state fields")
             if value.get("projectId") != project.project_id:
                 raise ValueError("state projectId does not match its directory")
+            if not isinstance(value["roles"], list):
+                raise ValueError("roles must be an array")
             roles: list[RoleRuntime] = []
             for item in value["roles"]:
+                if (
+                    not isinstance(item, dict)
+                    or set(item) != _ROLE_KEYS[schema_version]
+                ):
+                    raise ValueError("unexpected role fields")
                 role_name = item["role"]
                 adapter = item["adapter"]
-                window = item["window"]
+                endpoint = (
+                    item["window"] if schema_version == 1 else item["endpoint"]
+                )
                 if role_name in _LEGACY_ROLES:
                     continue
-                roles.append(RoleRuntime(Role(role_name), adapter, window))
+                role = Role(role_name)
+                if not isinstance(adapter, str) or not adapter:
+                    raise ValueError("invalid role adapter")
+                if endpoint != role.value:
+                    raise ValueError("invalid logical role endpoint")
+                roles.append(RoleRuntime(role, adapter, endpoint))
+            if (
+                {item.role for item in roles} != set(Role)
+                or len(roles) != len(Role)
+            ):
+                raise ValueError("state must contain every active role once")
             return RuntimeState(
                 project_id=value["projectId"],
                 backend=value["backend"],
@@ -51,6 +89,11 @@ class JsonStateStore:
                 stopped_at=value.get("stoppedAt"),
                 roles=tuple(roles),
                 last_error=value.get("lastError"),
+                layout=(
+                    Layout.WINDOWS
+                    if schema_version == 1
+                    else Layout(value["layout"])
+                ),
             )
         except (KeyError, OSError, TypeError, ValueError) as error:
             raise AtCodeError(
@@ -63,18 +106,19 @@ class JsonStateStore:
         write_json_atomic(
             self._state_path(project),
             {
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "projectId": state.project_id,
                 "backend": state.backend,
                 "backendSession": state.session_name,
                 "status": state.status.value,
+                "layout": state.layout.value,
                 "startedAt": state.started_at,
                 "stoppedAt": state.stopped_at,
                 "roles": [
                     {
                         "role": item.role.value,
                         "adapter": item.adapter,
-                        "window": item.window,
+                        "endpoint": item.endpoint,
                     }
                     for item in state.roles
                 ],
@@ -82,46 +126,8 @@ class JsonStateStore:
             },
         )
 
-    @contextmanager
-    def locked(self, project: Project) -> Iterator[None]:
-        path = self._project_dir(project) / "state.lock"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a+b") as stream:
-            _acquire(stream)
-            try:
-                yield
-            finally:
-                _release(stream)
-
     def _project_dir(self, project: Project) -> Path:
         return self._home / "projects" / project.project_id
 
     def _state_path(self, project: Project) -> Path:
         return self._project_dir(project) / "state.json"
-
-
-def _acquire(stream: BinaryIO) -> None:
-    if os.name == "nt":
-        import msvcrt
-
-        if stream.seek(0, os.SEEK_END) == 0:
-            stream.write(b"0")
-            stream.flush()
-        stream.seek(0)
-        msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
-
-
-def _release(stream: BinaryIO) -> None:
-    if os.name == "nt":
-        import msvcrt
-
-        stream.seek(0)
-        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(stream.fileno(), fcntl.LOCK_UN)

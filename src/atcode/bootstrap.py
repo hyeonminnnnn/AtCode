@@ -9,9 +9,11 @@ from pathlib import Path
 
 from atcode.application.configuration import ConfigurationService
 from atcode.application.diagnostics import DiagnosticsService
+from atcode.application.handoffs import HandoffParser
 from atcode.application.projects import ProjectService
-from atcode.application.prompts import PromptRenderer
+from atcode.application.prompts import PromptRenderer, StartupPromptBuilder
 from atcode.application.sessions import SessionService
+from atcode.application.workflow import WorkflowService
 from atcode.domain.errors import AtCodeError
 from atcode.domain.models import Project
 from atcode.infrastructure.adapters.claude import ClaudeAdapter
@@ -21,9 +23,11 @@ from atcode.infrastructure.adapters.registry import AdapterRegistry
 from atcode.infrastructure.adapters.shell import ShellAdapter
 from atcode.infrastructure.process import SubprocessRunner
 from atcode.infrastructure.storage.configuration import JsonConfigurationStore
+from atcode.infrastructure.storage.lock import JsonProjectLock
 from atcode.infrastructure.storage.projects import JsonProjectStore
 from atcode.infrastructure.storage.prompts import FilesystemPromptStore
 from atcode.infrastructure.storage.state import JsonStateStore
+from atcode.infrastructure.storage.workflow import JsonWorkflowStore
 from atcode.infrastructure.tmux_backend import TmuxBackend
 from atcode.ports.backend import TerminalBackend
 
@@ -69,6 +73,10 @@ class AppContainer:
     adapters: AdapterRegistry
     backend: TerminalBackend
     state_store: JsonStateStore
+    workflow_store: JsonWorkflowStore
+    project_lock: JsonProjectLock
+    startup_prompts: StartupPromptBuilder
+    handoff_parser: HandoffParser
     diagnostics: DiagnosticsService
 
     def registered_project(self, explicit: str | Path | None, cwd: Path) -> Project:
@@ -90,7 +98,29 @@ class AppContainer:
             adapters=self.adapters,
             backend=self.backend,
             state_store=self.state_store,
+            workflow_store=self.workflow_store,
+            project_lock=self.project_lock,
+            startup_prompts=self.startup_prompts,
             atcode_home=self.paths.home,
+        )
+
+    def workflows(self, project: Project) -> WorkflowService:
+        return WorkflowService(
+            project=project,
+            session_name=f"atcode-{project.project_id}",
+            backend=self.backend,
+            parser=self.handoff_parser,
+            store=self.workflow_store,
+            project_lock=self.project_lock,
+        )
+
+    def project_for_session(self, session_name: str) -> Project:
+        for project in self.project_store.list():
+            if f"atcode-{project.project_id}" == session_name:
+                return project
+        raise AtCodeError(
+            "SESSION_NOT_REGISTERED",
+            f"No registered project owns session: {session_name}",
         )
 
 
@@ -135,6 +165,10 @@ def build_container(
         paths.home,
     )
     state_store = JsonStateStore(paths.home)
+    workflow_store = JsonWorkflowStore(paths.home)
+    project_lock = JsonProjectLock(paths.home)
+    startup_prompts = StartupPromptBuilder()
+    handoff_parser = HandoffParser()
     diagnostics = DiagnosticsService(
         paths=paths,
         configuration=configuration,
@@ -142,6 +176,8 @@ def build_container(
         backend=terminal_backend,
         prompts=prompts,
         state_store=state_store,
+        workflow_store=workflow_store,
+        project_lock=project_lock,
     )
     return AppContainer(
         paths,
@@ -152,5 +188,9 @@ def build_container(
         adapter_registry,
         terminal_backend,
         state_store,
+        workflow_store,
+        project_lock,
+        startup_prompts,
+        handoff_parser,
         diagnostics,
     )

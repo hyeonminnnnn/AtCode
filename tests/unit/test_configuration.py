@@ -6,7 +6,7 @@ import pytest
 
 from atcode.application.configuration import ConfigurationService
 from atcode.domain.errors import AtCodeError
-from atcode.domain.models import Project, Role
+from atcode.domain.models import Layout, Project, Role
 from atcode.infrastructure.storage.configuration import JsonConfigurationStore
 
 
@@ -34,6 +34,34 @@ def test_all_default_roles_use_codex(tmp_path: Path) -> None:
     assert {role: config.roles[role].adapter for role in Role} == {
         role: "codex" for role in Role
     }
+
+
+def test_default_layout_is_panes(tmp_path: Path) -> None:
+    service, _store = make_service(tmp_path)
+
+    assert service.effective(None).layout is Layout.PANES
+
+
+def test_project_layout_override_round_trips(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    service, _store = make_service(tmp_path)
+
+    service.set(project, "layout", "windows", global_scope=False)
+
+    assert service.get(project, "layout") == "windows"
+    assert service.effective(project).layout is Layout.WINDOWS
+
+    service.unset(project, "layout", global_scope=False)
+
+    assert service.get(project, "layout") == "panes"
+
+
+def test_unknown_layout_is_rejected(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    service, _store = make_service(tmp_path)
+
+    with pytest.raises(AtCodeError, match="CONFIG_VALUE_INVALID"):
+        service.set(project, "layout", "grid", global_scope=False)
 
 
 def test_phase_one_has_exactly_three_roles() -> None:

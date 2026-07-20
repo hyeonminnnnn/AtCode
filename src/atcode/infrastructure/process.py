@@ -26,6 +26,7 @@ class SubprocessRunner:
         *,
         cwd: Path | None = None,
         env: Mapping[str, str] | None = None,
+        input_text: str | None = None,
         timeout: float = 15,
     ) -> CommandResult:
         command = tuple(argv)
@@ -37,6 +38,7 @@ class SubprocessRunner:
                 command,
                 cwd=cwd,
                 env=process_env,
+                input=input_text,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

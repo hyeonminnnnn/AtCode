@@ -17,9 +17,17 @@ from atcode.domain.models import DiagnosticLevel
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="atcode", description="AI Team Runtime")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("init", "start", "attach", "stop", "status", "doctor"):
+    for name in ("init", "attach", "stop", "status", "doctor"):
         command = commands.add_parser(name)
         command.add_argument("--project")
+    start = commands.add_parser("start")
+    start.add_argument("--project")
+    start.add_argument("--fresh", action="store_true")
+    next_command = commands.add_parser("next")
+    next_command.add_argument("--project")
+    next_command.add_argument("--session", help=argparse.SUPPRESS)
+    next_command.add_argument("--pane", help=argparse.SUPPRESS)
+    next_command.add_argument("--notify", action="store_true", help=argparse.SUPPRESS)
     commands.add_parser("list")
     config = commands.add_parser("config")
     actions = config.add_subparsers(dest="config_action", required=True)
@@ -39,6 +47,7 @@ def run(
     *,
     container: AppContainer,
     cwd: Path,
+    stdin: TextIO,
     stdout: TextIO,
     stderr: TextIO,
 ) -> int:
@@ -47,7 +56,19 @@ def run(
         if args.command == "init":
             project = container.projects.init(args.project, cwd)
             print(f"프로젝트 초기화: {project.root}", file=stdout)
-        elif args.command in {"start", "attach", "stop", "status"}:
+        elif args.command == "start":
+            project = container.registered_project(args.project, cwd)
+            sessions = container.sessions(project)
+            if args.fresh:
+                _reset_fresh(container, project, stdin, stdout)
+            state = sessions.start()
+            print(f"{project.name}: {state.status.value}", file=stdout)
+            binding = container.backend.install_next_action()
+            if binding.level is DiagnosticLevel.WARN:
+                print(f"WARNING {binding.name}: {binding.message}", file=stdout)
+                if binding.hint:
+                    print(f"Hint: {binding.hint}", file=stdout)
+        elif args.command in {"attach", "stop", "status"}:
             project = container.registered_project(args.project, cwd)
             sessions = container.sessions(project)
             if args.command == "attach":
@@ -55,6 +76,40 @@ def run(
             else:
                 state = getattr(sessions, args.command)()
                 print(f"{project.name}: {state.status.value}", file=stdout)
+                if args.command == "status":
+                    workflow = container.workflows(project).current()
+                    handoff = container.workflow_store.read_handoff(project)
+                    delivery = handoff.delivery.value if handoff is not None else "none"
+                    print(
+                        f"workflow={workflow.status.value} "
+                        f"role={workflow.current_role.value} "
+                        f"round={workflow.round} "
+                        f"transfer={workflow.last_transfer_id} "
+                        f"delivery={delivery}",
+                        file=stdout,
+                    )
+        elif args.command == "next":
+            if args.session:
+                project = container.project_for_session(args.session)
+            else:
+                if args.pane:
+                    raise AtCodeError(
+                        "NEXT_SOURCE_INVALID",
+                        "--pane requires the internal --session option.",
+                        exit_code=2,
+                    )
+                project = container.registered_project(args.project, cwd)
+            result = container.workflows(project).next(source_pane=args.pane)
+            message = (
+                f"transfer={result.transfer_id} "
+                f"{result.from_role.value} -> {result.to_role.value} "
+                f"workflow={result.workflow_status.value}"
+            )
+            if result.focus_warning:
+                message += f" focus-warning={result.focus_warning}"
+            print(message, file=stdout)
+            if args.notify:
+                _display_message(container, message)
         elif args.command == "doctor":
             project = _optional_project(container, args.project, cwd)
             results = container.diagnostics.run(project)
@@ -91,10 +146,49 @@ def run(
                 )
         return 0
     except AtCodeError as error:
+        if args.command == "next" and getattr(args, "notify", False):
+            _display_message(container, f"ERROR {error.code}: {error.message}")
         print(f"ERROR {error.code}: {error.message}", file=stderr)
         if error.hint:
             print(f"Hint: {error.hint}", file=stderr)
         return error.exit_code
+
+
+def _reset_fresh(
+    container: AppContainer,
+    project,
+    stdin: TextIO,
+    stdout: TextIO,
+) -> None:
+    session_name = f"atcode-{project.project_id}"
+    if container.backend.inspect_session(session_name).exists:
+        raise AtCodeError(
+            "FRESH_REQUIRES_STOPPED_SESSION",
+            "Stop the project session before using --fresh.",
+            hint="Run atcode stop first.",
+        )
+    workflow_service = container.workflows(project)
+    workflow = workflow_service.current()
+    handoff = container.workflow_store.read_handoff(project)
+    delivery = handoff.delivery.value if handoff is not None else "none"
+    print(
+        f"현재 workflow={workflow.status.value} "
+        f"role={workflow.current_role.value} round={workflow.round} "
+        f"transfer={workflow.last_transfer_id} delivery={delivery}",
+        file=stdout,
+    )
+    print("workflow와 최신 handoff를 초기화할까요? [y/N] ", end="", file=stdout)
+    if stdin.readline().strip().lower() not in {"y", "yes"}:
+        raise AtCodeError("FRESH_CANCELLED", "Fresh start was cancelled.")
+    workflow_service.reset()
+    print("workflow 초기화 완료", file=stdout)
+
+
+def _display_message(container: AppContainer, message: str) -> None:
+    try:
+        container.backend.display_message(message)
+    except AtCodeError:
+        pass
 
 
 def _optional_project(
@@ -117,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         list(sys.argv[1:] if argv is None else argv),
         container=container,
         cwd=Path.cwd(),
+        stdin=sys.stdin,
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
