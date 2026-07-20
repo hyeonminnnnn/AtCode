@@ -189,6 +189,38 @@ def test_next_routes_current_role_and_prints_transfer(tmp_path: Path) -> None:
     assert stderr == ""
 
 
+def test_internal_next_notify_reports_success_without_stdout(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    container = make_container(tmp_path)
+    invoke(container, target, "init")
+    invoke(container, target, "start")
+    session_name = next(iter(container.backend.snapshots))
+    container.backend.outputs[Role.PM] = (
+        "<ATCODE_HANDOFF>\nSTATUS: ready\nSUMMARY:\nbuild it\n</ATCODE_HANDOFF>"
+    )
+
+    code, stdout, stderr = invoke(
+        container,
+        target,
+        "next",
+        "--session",
+        session_name,
+        "--pane",
+        "%1",
+        "--notify",
+    )
+
+    assert code == 0
+    assert stdout == ""
+    assert stderr == ""
+    assert container.backend.messages == [
+        "transfer=1 pm -> developer workflow=active"
+    ]
+
+
 def test_status_prints_workflow_role_and_round(tmp_path: Path) -> None:
     target = tmp_path / "target"
     target.mkdir()
