@@ -184,6 +184,7 @@ class TmuxBackend:
             (
                 "tmux",
                 "paste-buffer",
+                "-p",
                 "-d",
                 "-b",
                 "atcode-transfer",

@@ -318,7 +318,8 @@ Tmux Backend는 다음을 담당한다.
 - 각 Pane에 AtCode Role Metadata 지정
 - `team` Window의 Pane Border에 PM, Developer, Reviewer 이름 표시
 - 역할 출력의 일시적 `capture-pane`
-- 인계 파일을 tmux Buffer에 Load하고 Target Pane에 Paste
+- 인계 파일을 tmux Buffer에 Load하고 `paste-buffer -p`로 Target Pane에
+  bracketed paste
 - 제출에 필요한 Enter Key 전달
 - Target Pane 또는 Window 선택
 - `Ctrl+b Enter`와 `atcode next` 연결
@@ -430,7 +431,7 @@ tests/unit, tests/integration
 1. 기본 Session이 `team` Window와 세 Role Pane을 만든다.
 2. windows 설정은 기존 세 Window를 만든다.
 3. Role Metadata로 Layout과 무관하게 Endpoint를 찾는다.
-4. Source 출력 Capture, Buffer Load, Paste, Enter, Focus 명령을 올바른 Target에 실행한다.
+4. Source 출력 Capture, Buffer Load, bracketed Paste, Enter, Focus 명령을 올바른 Target에 실행한다.
 5. 인계 본문의 따옴표, 줄바꿈, `$()`, Backtick이 Shell로 실행되지 않는다.
 6. 기존 `Ctrl+b Enter` Binding을 덮어쓰지 않는다.
 7. 일부 Pane이 없으면 Degraded 상태를 반환한다.

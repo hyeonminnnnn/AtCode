@@ -247,10 +247,11 @@ def test_deliver_text_uses_tmux_buffer_stdin_and_never_shell_content() -> None:
     load_call = next(call for call in runner.calls if "load-buffer" in call.argv)
     assert load_call.input_text == body
     assert all(body not in item for call in runner.calls for item in call.argv)
-    assert any(
-        "paste-buffer" in call.argv and "%2" in call.argv
-        for call in runner.calls
+    paste_call = next(
+        call for call in runner.calls if "paste-buffer" in call.argv
     )
+    assert "-p" in paste_call.argv
+    assert "%2" in paste_call.argv
     assert any(
         "send-keys" in call.argv and "Enter" in call.argv
         for call in runner.calls
